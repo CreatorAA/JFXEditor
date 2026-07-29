@@ -77,8 +77,7 @@ scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
 
 ## 🖥️ Run the Demos
 
-Demos live in [demos/](demos) as three standalone Maven projects (they depend on
-the jfxeditor artifact from Maven Central and are not packaged with this library):
+Demos live in [demos/](demos).:
 
 | Project | What it shows |
 | ------- | ------------- |
@@ -91,8 +90,6 @@ the jfxeditor artifact from Maven Central and are not packaged with this library
 cd demos/jfxeditor-demo-css
 mvn javafx:run
 ```
-
-> If the matching jfxeditor version is not in your local repository yet, run `mvn install` in the library root first.
 
 ## 📄 License
 
