@@ -207,7 +207,6 @@ public class CssHotReloadDemo extends Application {
         primaryStage.setTitle("JFXEditor - CSS 主题热加载演示");
         primaryStage.setScene(scene);
         primaryStage.show();
-        editor.requestFocus();
     }
 
     /* ==================== 工具栏 ==================== */

@@ -84,7 +84,6 @@ public class Demo2App extends Application {
         primaryStage.setTitle("JFXEditor Demo2 — 标记实时渲染为活组件");
         primaryStage.setScene(scene);
         primaryStage.show();
-        editor.requestFocus();
     }
 
     /** 重扫标记并调和组件。 */
