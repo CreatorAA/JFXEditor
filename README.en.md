@@ -2,6 +2,9 @@
 
 English | [简体中文](README.md)
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.creatoraa/jfxeditor)](https://central.sonatype.com/artifact/io.github.creatoraa/jfxeditor)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A native JavaFX code editor component rendered entirely on **Canvas**, highly extensible, with full support for **FXML syntax** and **CSS stylesheets**.
 
 ![Demo](imgs/demo.gif)
@@ -23,6 +26,16 @@ A native JavaFX code editor component rendered entirely on **Canvas**, highly ex
 | JDK | 21+ |
 | JavaFX | 23.0.1 |
 | Maven | 3.x |
+
+## 📥 Maven Dependency
+
+```xml
+<dependency>
+    <groupId>io.github.creatoraa</groupId>
+    <artifactId>jfxeditor</artifactId>
+    <version>1.2-preview</version>
+</dependency>
+```
 
 ## 🚀 Quick Start
 
