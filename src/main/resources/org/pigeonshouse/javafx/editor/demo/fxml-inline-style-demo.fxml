@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  FXML 内联 CSS 样式演示。
+
+  所有样式均直接写在标签上：
+  - 容器 / 控件使用 style 属性声明 -fx-* 属性；
+  - 两个 JFXEditor 使用 <style> 属性元素承载完整的 -editor-* 配置
+    （含全部语法 token 颜色与字形，字形值用单引号字符串）。
+  内联样式优先级高于 editor.css（UA 样式表），无需任何外部样式表文件。
+-->
+
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.Spinner?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.ToolBar?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+<?import org.pigeonshouse.javafx.editor.editor.JFXEditor?>
+
+<BorderPane xmlns="http://javafx.com/javafx"
+            xmlns:fx="http://javafx.com/fxml"
+            fx:controller="org.pigeonshouse.javafx.editor.demo.FxmlInlineStyleDemoController"
+            prefWidth="1100" prefHeight="700"
+            style="-fx-background-color: #12151c;">
+
+    <top>
+        <ToolBar styleClass="demo-toolbar"
+                 style="-fx-background-color: #1b2027; -fx-padding: 6 10 6 10; -fx-border-color: transparent transparent #0b0d12 transparent;">
+            <Label text="FXML 内联样式演示"
+                   style="-fx-text-fill: #8fd3ff; -fx-font-weight: bold; -fx-font-size: 13px;"/>
+            <Separator orientation="VERTICAL"/>
+            <CheckBox fx:id="gutterCheck" text="显示行号" selected="true"
+                      style="-fx-text-fill: #c8d3e0;"/>
+            <CheckBox fx:id="readOnlyCheck" text="只读模式"
+                      style="-fx-text-fill: #c8d3e0;"/>
+            <Separator orientation="VERTICAL"/>
+            <Label text="字号:" style="-fx-text-fill: #c8d3e0;"/>
+            <Spinner fx:id="fontSizeSpinner" prefWidth="70" editable="true"/>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label text="左：Ocean 配色 (Java)   右：Sunset 配色 (JSON)"
+                   style="-fx-text-fill: #5d6a7d; -fx-font-size: 11px;"/>
+        </ToolBar>
+    </top>
+
+    <center>
+        <SplitPane dividerPositions="0.5"
+                   style="-fx-background-color: transparent; -fx-background-insets: 0; -fx-padding: 4;">
+            <items>
+
+                <VBox spacing="2">
+                    <Label text="Ocean · Java (Tree-sitter)"
+                           style="-fx-text-fill: #58a6ff; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 2 0 2 4;"/>
+                    <JFXEditor fx:id="oceanEditor" VBox.vgrow="ALWAYS">
+                        <style>
+                            /* 基础外观 */
+                            -editor-background: #0f1c2e;
+                            -editor-text-color: #cfe3f5;
+                            -editor-selection-color: rgba(60, 120, 190, 0.35);
+                            -editor-current-line-color: #16263c;
+                            -editor-caret-color: #7fd0ff;
+                            -editor-caret-width: 2;
+                            -editor-caret-blink-rate: 500ms;
+                            -editor-gutter-background: #0c1727;
+                            -editor-gutter-text-color: #4a6f96;
+                            -editor-gutter-font-scale: 0.85;
+                            -editor-gutter-width: 52;
+                            -editor-after-text-color: #4a6f96;
+                            -editor-ghost-text-color: rgba(120, 150, 180, 0.55);
+                            -editor-line-height-multiplier: 1.5;
+
+                            /* 语法 token 配色（Ocean） */
+                            -editor-token-text: #cfe3f5;
+                            -editor-token-keyword: #58a6ff;
+                            -editor-token-keyword-style: 'bold';
+                            -editor-token-keyword-control: #bc8cff;
+                            -editor-token-keyword-control-style: 'bold';
+                            -editor-token-keyword-declaration: #58a6ff;
+                            -editor-token-keyword-declaration-style: 'bold';
+                            -editor-token-keyword-modifier: #58a6ff;
+                            -editor-token-keyword-modifier-style: 'bold';
+                            -editor-token-comment: #637d94;
+                            -editor-token-comment-style: 'italic';
+                            -editor-token-comment-block: #637d94;
+                            -editor-token-comment-block-style: 'italic';
+                            -editor-token-comment-doc: #637d94;
+                            -editor-token-comment-doc-style: 'italic';
+                            -editor-token-string: #7ee787;
+                            -editor-token-string-escape: #aff5b4;
+                            -editor-token-number: #79c0ff;
+                            -editor-token-number-integer: #79c0ff;
+                            -editor-token-number-float: #79c0ff;
+                            -editor-token-number-hex: #79c0ff;
+                            -editor-token-operator: #cfe3f5;
+                            -editor-token-punctuation: #8fa8c0;
+                            -editor-token-delimiter: #8fa8c0;
+                            -editor-token-type: #39c5cf;
+                            -editor-token-interface: #39c5cf;
+                            -editor-token-interface-style: 'italic';
+                            -editor-token-function: #d2a8ff;
+                            -editor-token-function-declaration: #d2a8ff;
+                            -editor-token-function-builtin: #d2a8ff;
+                            -editor-token-variable: #cfe3f5;
+                            -editor-token-variable-builtin: #58a6ff;
+                            -editor-token-constant: #79c0ff;
+                            -editor-token-constant-builtin: #58a6ff;
+                            -editor-token-property: #9ecbff;
+                            -editor-token-parameter: #cfe3f5;
+                            -editor-token-annotation: #e3b341;
+                            -editor-token-label: #e3b341;
+                            -editor-token-error: #ff7b72;
+                            -editor-token-error-style: 'underline';
+                            -editor-token-deprecated: #6e7f92;
+                            -editor-token-deprecated-style: 'italic';
+                            -editor-token-regex: #96d0ff;
+                        </style>
+                    </JFXEditor>
+                </VBox>
+
+                <VBox spacing="2">
+                    <Label text="Sunset · JSON (Regex)"
+                           style="-fx-text-fill: #ff9e64; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 2 0 2 4;"/>
+                    <JFXEditor fx:id="sunsetEditor" VBox.vgrow="ALWAYS">
+                        <style>
+                            /* 基础外观 */
+                            -editor-background: #2b1d16;
+                            -editor-text-color: #f5e0cf;
+                            -editor-selection-color: rgba(255, 140, 60, 0.3);
+                            -editor-current-line-color: #3a2a1e;
+                            -editor-caret-color: #ffb86c;
+                            -editor-caret-width: 2;
+                            -editor-caret-blink-rate: 500ms;
+                            -editor-gutter-background: #241811;
+                            -editor-gutter-text-color: #96694a;
+                            -editor-gutter-font-scale: 0.85;
+                            -editor-gutter-width: 52;
+                            -editor-after-text-color: #96694a;
+                            -editor-ghost-text-color: rgba(200, 160, 130, 0.55);
+                            -editor-line-height-multiplier: 1.5;
+
+                            /* 语法 token 配色（Sunset） */
+                            -editor-token-text: #f5e0cf;
+                            -editor-token-keyword: #ff9e64;
+                            -editor-token-keyword-style: 'bold';
+                            -editor-token-keyword-control: #ff7edb;
+                            -editor-token-keyword-control-style: 'bold';
+                            -editor-token-keyword-declaration: #ff9e64;
+                            -editor-token-keyword-declaration-style: 'bold';
+                            -editor-token-keyword-modifier: #ff9e64;
+                            -editor-token-keyword-modifier-style: 'bold';
+                            -editor-token-comment: #9d7a5f;
+                            -editor-token-comment-style: 'italic';
+                            -editor-token-comment-block: #9d7a5f;
+                            -editor-token-comment-block-style: 'italic';
+                            -editor-token-comment-doc: #9d7a5f;
+                            -editor-token-comment-doc-style: 'italic';
+                            -editor-token-string: #e5c07b;
+                            -editor-token-string-escape: #ffd27f;
+                            -editor-token-number: #f78c6c;
+                            -editor-token-number-integer: #f78c6c;
+                            -editor-token-number-float: #f78c6c;
+                            -editor-token-number-hex: #f78c6c;
+                            -editor-token-operator: #f5e0cf;
+                            -editor-token-punctuation: #c9a288;
+                            -editor-token-delimiter: #ff9e64;
+                            -editor-token-type: #ffcc66;
+                            -editor-token-interface: #ffcc66;
+                            -editor-token-interface-style: 'italic';
+                            -editor-token-function: #ffd580;
+                            -editor-token-function-declaration: #ffd580;
+                            -editor-token-function-builtin: #ffd580;
+                            -editor-token-variable: #f5e0cf;
+                            -editor-token-variable-builtin: #ff9e64;
+                            -editor-token-constant: #ff8f40;
+                            -editor-token-constant-builtin: #ff8f40;
+                            -editor-token-property: #ffc98b;
+                            -editor-token-parameter: #f5e0cf;
+                            -editor-token-annotation: #ffd580;
+                            -editor-token-label: #ffd580;
+                            -editor-token-error: #ff5555;
+                            -editor-token-error-style: 'underline';
+                            -editor-token-deprecated: #8a6f5c;
+                            -editor-token-deprecated-style: 'italic';
+                            -editor-token-regex: #ffb86c;
+                        </style>
+                    </JFXEditor>
+                </VBox>
+
+            </items>
+        </SplitPane>
+    </center>
+
+    <bottom>
+        <HBox spacing="16" styleClass="demo-status-bar"
+              style="-fx-background-color: #1b2027; -fx-padding: 4 10 4 10; -fx-border-color: #0b0d12 transparent transparent transparent;">
+            <Label fx:id="statusLabel" text="就绪"
+                   style="-fx-text-fill: #8fd3ff; -fx-font-size: 12px;"/>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label text="样式全部来自 FXML 标签内联 CSS"
+                   style="-fx-text-fill: #5d6a7d; -fx-font-size: 11px;"/>
+        </HBox>
+    </bottom>
+
+</BorderPane>

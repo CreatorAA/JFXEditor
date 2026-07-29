@@ -1,0 +1,124 @@
+/*
+ * JFXEditor 默认用户代理样式表。
+ *
+ * 所有 -editor-* 属性均为 JFXEditor 控件注册的 CSS 可样式化属性，
+ * 应用可在自己的样式表或 setStyle 中覆盖任意值。
+ * 语法配色由 -editor-token-<type> 与 -editor-token-<type>-style 驱动
+ * （type 为 TokenType 名称的 kebab-case，style 值为空格分隔的
+ * bold/italic/underline 组合），未声明的类型按基础名→text 链回退。
+ * 通过为编辑器追加 styleClass（compact / comfortable）可切换尺寸变体；
+ * 整套配色主题由内置 EditorTheme 样式表（themes/*.css）提供。
+ */
+
+/* ==================== 默认深色主题 ==================== */
+
+.editor {
+    -editor-background: #1e1e1e;
+    -editor-text-color: #d4d4d4;
+    -editor-selection-color: rgba(38, 79, 120, 0.27);
+    -editor-current-line-color: #2a2828;
+    -editor-caret-color: #fdfcfc;
+    -editor-caret-width: 2;
+    -editor-caret-blink-rate: 530ms;
+    -editor-gutter-background: #302c2c;
+    -editor-gutter-text-color: #646262;
+    -editor-gutter-font-scale: 0.85;
+    -editor-after-text-color: #808080;
+    -editor-ghost-text-color: rgba(110, 110, 115, 0.6);
+    -editor-gutter-width: 50;
+    -editor-line-height-multiplier: 1.5;
+    -fx-font-family: "Consolas", "JetBrains Mono", "Cascadia Mono", "SF Mono", "Liberation Mono", monospace;
+    -fx-font-size: 14px;
+
+    /* 语法 token 配色（深色） */
+    -editor-token-text: #d4d4d4;
+    -editor-token-keyword: #569cd6;
+    -editor-token-keyword-style: "bold";
+    -editor-token-keyword-control: #c586c0;
+    -editor-token-keyword-control-style: "bold";
+    -editor-token-keyword-declaration: #569cd6;
+    -editor-token-keyword-declaration-style: "bold";
+    -editor-token-keyword-modifier: #569cd6;
+    -editor-token-keyword-modifier-style: "bold";
+    -editor-token-comment: #6a9955;
+    -editor-token-comment-style: "italic";
+    -editor-token-comment-block: #6a9955;
+    -editor-token-comment-block-style: "italic";
+    -editor-token-comment-doc: #6a9955;
+    -editor-token-comment-doc-style: "italic";
+    -editor-token-string: #ce9178;
+    -editor-token-string-escape: #d7ba7d;
+    -editor-token-number: #b5cea8;
+    -editor-token-number-integer: #b5cea8;
+    -editor-token-number-float: #b5cea8;
+    -editor-token-number-hex: #b5cea8;
+    -editor-token-operator: #d4d4d4;
+    -editor-token-punctuation: #d4d4d4;
+    -editor-token-type: #4ec9b0;
+    -editor-token-function: #dcdcaa;
+    -editor-token-function-declaration: #dcdcaa;
+    -editor-token-constant: #4fc1ff;
+    -editor-token-error: #f44747;
+    -editor-token-error-style: "underline";
+}
+
+/* ==================== 尺寸变体 ==================== */
+
+.editor.compact {
+    -fx-font-size: 12px;
+    -editor-line-height-multiplier: 1.3;
+}
+
+.editor.comfortable {
+    -fx-font-size: 16px;
+    -editor-line-height-multiplier: 1.6;
+}
+
+/* ==================== 状态 ==================== */
+
+.editor:disabled {
+    -fx-opacity: 0.6;
+}
+
+.editor:read-only {
+    /* 只读模式的视觉提示可由应用覆盖，例如更换背景色 */
+}
+
+.editor:focused {
+    /* 焦点状态由内部画布桥接到控件；应用可在此覆盖边框等样式 */
+}
+
+/* ==================== 滚动条样式 ==================== */
+
+.editor .scroll-bar:vertical,
+.editor .scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar:vertical .thumb,
+.editor .scroll-bar:horizontal .thumb {
+    -fx-background-color: #4a4a4a;
+    -fx-background-radius: 4px;
+}
+
+.editor .scroll-bar:vertical .thumb:hover,
+.editor .scroll-bar:horizontal .thumb:hover {
+    -fx-background-color: #5a5a5a;
+}
+
+.editor .scroll-bar:vertical .track,
+.editor .scroll-bar:horizontal .track {
+    -fx-background-color: transparent;
+}
+
+.editor .scroll-bar .increment-button,
+.editor .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .increment-arrow,
+.editor .scroll-bar .decrement-arrow {
+    -fx-background-color: #646262;
+}

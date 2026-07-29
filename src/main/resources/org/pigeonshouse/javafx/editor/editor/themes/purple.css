@@ -1,0 +1,147 @@
+/*
+ * 紫色主题（Purple）—— 灵感来自 Shades of Purple 配色。
+ * 作为场景级样式表加载，优先级高于 editor.css（UA 样式表）。
+ */
+
+/* ==================== 全局控件配色 ==================== */
+
+.root {
+    -fx-base: #4d4a89;
+    -fx-background: #1f1f41;
+    -fx-control-inner-background: #38356a;
+    -fx-accent: #b362ff;
+    -fx-focus-color: #fad000;
+    -fx-faint-focus-color: #fad00022;
+    -fx-background-color: #1f1f41;
+}
+
+.demo-toolbar {
+    -fx-background-color: #28284e;
+    -fx-border-color: transparent transparent #161636 transparent;
+    -fx-padding: 6 10 6 10;
+}
+
+.demo-status-bar {
+    -fx-background-color: #b362ff;
+    -fx-padding: 3 10 3 10;
+}
+
+.demo-status-bar .label {
+    -fx-text-fill: #1f1f41;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+/* ==================== 编辑器主体 ==================== */
+
+.editor {
+    -editor-background: #2d2b55;
+    -editor-text-color: #e3dfff;
+    -editor-selection-color: rgba(179, 98, 255, 0.35);
+    -editor-current-line-color: #1f1f41;
+    -editor-caret-color: #fad000;
+    -editor-caret-width: 2;
+    -editor-caret-blink-rate: 450ms;
+    -editor-gutter-background: #28284e;
+    -editor-gutter-text-color: #a599e9;
+    -editor-gutter-font-scale: 0.85;
+    -editor-gutter-width: 52;
+    -editor-after-text-color: #a599e9;
+    -editor-ghost-text-color: rgba(165, 153, 233, 0.55);
+    -editor-line-height-multiplier: 1.55;
+    -fx-font-family: "Consolas", "JetBrains Mono", "Cascadia Mono", monospace;
+
+    /* -------- 语法 token 配色 -------- */
+    -editor-token-text: #e3dfff;
+    -editor-token-keyword: #ff9d00;
+    -editor-token-keyword-style: "bold";
+    -editor-token-keyword-control: #ff9d00;
+    -editor-token-keyword-control-style: "bold italic";
+    -editor-token-keyword-declaration: #ff9d00;
+    -editor-token-keyword-declaration-style: "bold";
+    -editor-token-keyword-modifier: #ff9d00;
+    -editor-token-keyword-modifier-style: "bold";
+    -editor-token-comment: #b362ff;
+    -editor-token-comment-style: "italic";
+    -editor-token-comment-block: #b362ff;
+    -editor-token-comment-block-style: "italic";
+    -editor-token-comment-doc: #b362ff;
+    -editor-token-comment-doc-style: "italic";
+    -editor-token-string: #a5ff90;
+    -editor-token-string-escape: #fad000;
+    -editor-token-number: #ff628c;
+    -editor-token-number-integer: #ff628c;
+    -editor-token-number-float: #ff628c;
+    -editor-token-number-hex: #ff628c;
+    -editor-token-operator: #ff9d00;
+    -editor-token-punctuation: #e3dfff;
+    -editor-token-delimiter: #a599e9;
+    -editor-token-type: #9effff;
+    -editor-token-interface: #9effff;
+    -editor-token-interface-style: "italic";
+    -editor-token-function: #fad000;
+    -editor-token-function-declaration: #fad000;
+    -editor-token-function-declaration-style: "bold";
+    -editor-token-function-builtin: #fad000;
+    -editor-token-variable: #e3dfff;
+    -editor-token-variable-builtin: #9effff;
+    -editor-token-constant: #ff628c;
+    -editor-token-constant-builtin: #ff628c;
+    -editor-token-property: #fa8d3e;
+    -editor-token-parameter: #e3dfff;
+    -editor-token-parameter-style: "italic";
+    -editor-token-annotation: #fad000;
+    -editor-token-label: #fa8d3e;
+    -editor-token-error: #ec3a37;
+    -editor-token-error-style: "bold underline";
+    -editor-token-deprecated: #7d7ab0;
+    -editor-token-deprecated-style: "italic";
+    -editor-token-regex: #80ffbb;
+}
+
+/* ==================== 状态伪类 ==================== */
+
+.editor:read-only {
+    -editor-background: #262450;
+    -editor-current-line-color: #262450;
+}
+
+.editor:focused {
+    -editor-caret-color: #ffe000;
+}
+
+.editor:disabled {
+    -fx-opacity: 0.55;
+}
+
+/* ==================== 滚动条 ==================== */
+
+.editor .scroll-bar:vertical,
+.editor .scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .track {
+    -fx-background-color: transparent;
+}
+
+.editor .scroll-bar .thumb {
+    -fx-background-color: #4d4a89;
+    -fx-background-radius: 4px;
+}
+
+.editor .scroll-bar .thumb:hover {
+    -fx-background-color: #6560a8;
+}
+
+.editor .scroll-bar .increment-button,
+.editor .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .increment-arrow,
+.editor .scroll-bar .decrement-arrow {
+    -fx-background-color: #a599e9;
+}
