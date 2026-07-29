@@ -2,6 +2,9 @@
 
 [English](README.en.md) | 简体中文
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.creatoraa/jfxeditor)](https://central.sonatype.com/artifact/io.github.creatoraa/jfxeditor)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 基于 **Canvas** 绘制的 JavaFX 原生代码编辑器组件，拥有很高的拓展性，完整支持 **FXML 语法**与 **CSS 样式表**。
 
 ![演示](imgs/demo.gif)
@@ -28,7 +31,7 @@
 
 ```xml
 <dependency>
-    <groupId>io.github.CreatorAA</groupId>
+    <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
     <version>1.2-preview</version>
 </dependency>
