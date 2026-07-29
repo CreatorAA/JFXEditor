@@ -15,22 +15,6 @@
     -fx-background-color: #f3f3f3;
 }
 
-.demo-toolbar {
-    -fx-background-color: #eaeaea;
-    -fx-border-color: transparent transparent #d0d0d0 transparent;
-    -fx-padding: 6 10 6 10;
-}
-
-.demo-status-bar {
-    -fx-background-color: #0090f1;
-    -fx-padding: 3 10 3 10;
-}
-
-.demo-status-bar .label {
-    -fx-text-fill: #ffffff;
-    -fx-font-size: 12px;
-}
-
 /* ==================== 编辑器主体 ==================== */
 
 .editor {

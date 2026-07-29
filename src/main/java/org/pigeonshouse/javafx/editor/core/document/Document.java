@@ -102,6 +102,15 @@ public interface Document {
     int getMaxLineLength();
 
     /**
+     * 返回最长行所在的行号（与 {@link #getMaxLineLength()} 配套，
+     * 多行等长时返回其中之一）。渲染侧据此只对这一行做像素
+     * 宽度实测，避免全文逐行扫描。
+     *
+     * @return 最长行行号（0 起）；空文档为 {@code -1}
+     */
+    int getMaxLineLengthLine();
+
+    /**
      * 返回总字符数（UTF-16 code unit 计，含换行符）。
      *
      * @return 字符总数

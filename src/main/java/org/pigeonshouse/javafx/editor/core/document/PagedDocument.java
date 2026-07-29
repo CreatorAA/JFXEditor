@@ -67,6 +67,8 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
         int charCount;
         /** 块内最长行长度（文档级最长行按块聚合）。 */
         int maxLineLength;
+        /** 块内最长行的局部行下标（与 maxLineLength 配套，不受其他块平移影响）。 */
+        int maxLineLocalIndex;
         /** 行内容；{@code null} 表示未加载。 */
         List<String> lines;
         /** 是否被编辑过（驻留内存、免驱逐、保存时从内存写出）。 */
@@ -435,6 +437,27 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
         return cachedMaxLineLength;
     }
 
+    /**
+     * {@inheritDoc} 块元数据恒精确：先聚合块级最长行定位目标块
+     * （顺带修正文档级缓存可能的虚高），再用块内缓存的局部行下标
+     * 直接还原全局行号，不需加载块也不需二次扫描，代价 O(块数)。
+     */
+    @Override
+    public int getMaxLineLengthLine() {
+        if (blocks.isEmpty()) {
+            return -1;
+        }
+        rebuildPrefixIfNeeded();
+        recomputeMaxLineLength();
+        for (int b = 0; b < blocks.size(); b++) {
+            Block block = blocks.get(b);
+            if (block.maxLineLength == cachedMaxLineLength) {
+                return prefixLines[b] + block.maxLineLocalIndex;
+            }
+        }
+        return 0;
+    }
+
     /** {@inheritDoc} 真实字符数 = 虚拟尾 LF 前缀和 − 1（空文档为 0）。 */
     @Override
     public int getCharCount() {
@@ -478,7 +501,6 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
             rel -= lineText.length() + 1;
             line++;
         }
-        // 理论不可达：偏移已钳制在本块前缀区间内
         return Position.of(line - 1, block.lines.get(block.lines.size() - 1).length());
     }
 
@@ -783,19 +805,23 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
         updateBlockMetadata(block, block.lines);
     }
 
-    /** 以给定行列表重算块的行数/字符数/最长行元数据。 */
+    /** 以给定行列表重算块的行数/字符数/最长行（含局部行下标）元数据。 */
     private static void updateBlockMetadata(Block block, List<String> lines) {
         int chars = 0;
         int maxLen = 0;
-        for (String line : lines) {
-            chars += line.length() + 1;
-            if (line.length() > maxLen) {
-                maxLen = line.length();
+        int maxIdx = 0;
+        for (int i = 0; i < lines.size(); i++) {
+            int len = lines.get(i).length();
+            chars += len + 1;
+            if (len > maxLen) {
+                maxLen = len;
+                maxIdx = i;
             }
         }
         block.lineCount = lines.size();
         block.charCount = chars;
         block.maxLineLength = maxLen;
+        block.maxLineLocalIndex = maxIdx;
     }
 
     /** 创建携带给定行的 dirty 块（无文件回源）。 */

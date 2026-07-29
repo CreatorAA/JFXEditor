@@ -17,7 +17,7 @@ A native JavaFX code editor component rendered entirely on **Canvas**, highly ex
 - 🌈 **Syntax highlighting** — built-in Tree-sitter (Java) and regex-based (Java / JSON) engines, asynchronous and non-blocking
 - 🔌 **Highly extensible** — pluggable render layers, decoration model, key bindings, and indent strategies
 - 📄 **Multiple document models** — in-memory / paged large-file documents backed by GapBuffer, with undo/redo
-- 🎯 **Four built-in themes** — Dark / Light / Purple / High Contrast
+- 🎯 **Four built-in themes** — Default / Light / Purple / High Contrast
 
 ## 📦 Requirements
 
@@ -33,7 +33,7 @@ A native JavaFX code editor component rendered entirely on **Canvas**, highly ex
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.3-preview</version>
+    <version>1.4-preview</version>
 </dependency>
 ```
 
@@ -47,7 +47,7 @@ editor.document().setText("public class Demo {}\n");
 editor.setHighlighter(TreeSitterHighlighter.forJava()); // enable syntax highlighting
 
 // Apply a built-in theme (scene-level or control-level)
-scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
+scene.getStylesheets().setAll(EditorTheme.DEFAULT.getStylesheet());
 ```
 
 ### In FXML

@@ -75,7 +75,7 @@ public class CssHotReloadDemo extends Application {
     }
 
     private static final List<Theme> THEMES = List.of(
-            new Theme("暗色主题 (Dark)", EditorTheme.DARK),
+            new Theme("默认主题 (Dark)", EditorTheme.DEFAULT),
             new Theme("亮色主题 (Light)", EditorTheme.LIGHT),
             new Theme("紫色主题 (Purple)", EditorTheme.PURPLE),
             new Theme("高对比度主题 (High Contrast)", EditorTheme.HIGH_CONTRAST));

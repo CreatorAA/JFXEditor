@@ -45,6 +45,8 @@ public class MemoryDocument implements ReplayableDocument {
     private volatile boolean textDirty;
     /** 最长行长度缓存，供横向滚动条计算。 */
     private int cachedMaxLineLength;
+    /** 最长行行号缓存；空文档为 -1，与长度缓存同步维护。 */
+    private int cachedMaxLineLengthLine;
 
     /** 创建空文档（行数为 0）。 */
     public MemoryDocument() {
@@ -56,6 +58,7 @@ public class MemoryDocument implements ReplayableDocument {
         this.batchMinLine = Integer.MAX_VALUE;
         this.textDirty = false;
         this.cachedMaxLineLength = 0;
+        this.cachedMaxLineLengthLine = -1;
     }
 
     /** {@inheritDoc} 全文采用惰性缓存，仅在脏时重新拼接。 */
@@ -112,6 +115,11 @@ public class MemoryDocument implements ReplayableDocument {
     @Override
     public int getMaxLineLength() {
         return cachedMaxLineLength;
+    }
+
+    @Override
+    public int getMaxLineLengthLine() {
+        return cachedMaxLineLengthLine;
     }
 
     @Override
@@ -424,21 +432,26 @@ public class MemoryDocument implements ReplayableDocument {
         return text.replace("\r\n", "\n").replace('\r', '\n');
     }
 
-    /** O(n) 全量重算最长行缓存。 */
+    /** O(n) 全量重算最长行缓存（长度与行号，行长查询为 O(1)，不触碰行内容）。 */
     private void recomputeMaxLineLength() {
+        int lineCount = getLineCount();
         int max = 0;
-        for (int i = 0; i < getLineCount(); i++) {
+        int maxLine = lineCount > 0 ? 0 : -1;
+        for (int i = 0; i < lineCount; i++) {
             int len = getLineLength(i);
             if (len > max) {
                 max = len;
+                maxLine = i;
             }
         }
         cachedMaxLineLength = max;
+        cachedMaxLineLengthLine = maxLine;
     }
 
     /**
-     * 插入后增量维护最长行缓存：只检查插入行到“插入行 + 换行数”
-     * 这几行，避免全文扫描。
+     * 插入后增量维护最长行缓存：先平移行号（插入点之后的行整体
+     * 下移），再只检查插入行到“插入行 + 换行数”这几行；最长行
+     * 自身被拆分时长度可能缩短，只能全量重算。
      */
     private void updateMaxLineLengthForInsert(int line, int col, String insertedText) {
         int newlineCount = 0;
@@ -447,11 +460,21 @@ public class MemoryDocument implements ReplayableDocument {
                 newlineCount++;
             }
         }
+        if (newlineCount > 0) {
+            if (cachedMaxLineLengthLine == line) {
+                recomputeMaxLineLength();
+                return;
+            }
+            if (cachedMaxLineLengthLine > line) {
+                cachedMaxLineLengthLine += newlineCount;
+            }
+        }
         int lastAffected = Math.min(line + newlineCount, getLineCount() - 1);
         for (int i = line; i <= lastAffected; i++) {
             int len = getLineLength(i);
             if (len > cachedMaxLineLength) {
                 cachedMaxLineLength = len;
+                cachedMaxLineLengthLine = i;
             }
         }
     }

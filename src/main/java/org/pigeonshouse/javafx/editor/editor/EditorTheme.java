@@ -12,7 +12,7 @@ import java.util.Objects;
  *
  * <pre>{@code
  * // 场景级：整个窗口内的编辑器统一换肤
- * scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
+ * scene.getStylesheets().setAll(EditorTheme.DEFAULT.getStylesheet());
  *
  * // 控件级：单个编辑器独立换肤
  * editor.getStylesheets().setAll(EditorTheme.LIGHT.getStylesheet());
@@ -23,7 +23,7 @@ import java.util.Objects;
 public enum EditorTheme {
 
     /** 暗色主题。 */
-    DARK("themes/dark.css"),
+    DEFAULT("editor.css"),
     /** 亮色主题。 */
     LIGHT("themes/light.css"),
     /** 高对比度主题。 */

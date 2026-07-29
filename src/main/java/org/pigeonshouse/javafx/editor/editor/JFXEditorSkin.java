@@ -18,6 +18,7 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
+import org.pigeonshouse.javafx.editor.core.document.Document;
 import org.pigeonshouse.javafx.editor.core.model.Position;
 import org.pigeonshouse.javafx.editor.core.model.TextRange;
 import org.pigeonshouse.javafx.editor.editor.caret.EditorCaret;
@@ -193,6 +194,10 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         horizontalScrollBar.setOrientation(Orientation.HORIZONTAL);
         verticalScrollBar.setManaged(false);
         horizontalScrollBar.setManaged(false);
+        // ScrollBar 默认可见；先隐藏，由首次布局按内容量判定，
+        // 否则首帧会按"有滚动条"错误扣减画布尺寸留下空白。
+        verticalScrollBar.setVisible(false);
+        horizontalScrollBar.setVisible(false);
         verticalScrollBar.setMin(0);
         horizontalScrollBar.setMin(0);
 
@@ -361,11 +366,28 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         });
     }
 
-    /** {@inheritDoc} 按滚动条可见性扣减画布尺寸、摆放滚动条并刷新范围。 */
+    /** {@inheritDoc} 先按内容量预判滚动条可见性，再扣减画布尺寸、摆放滚动条并刷新范围。 */
     @Override
     protected void layoutChildren(double contentX, double contentY, double contentWidth, double contentHeight) {
-        double sw = verticalScrollBar.isVisible() ? verticalScrollBar.prefWidth(-1) : 0;
-        double sh = horizontalScrollBar.isVisible() ? horizontalScrollBar.prefHeight(-1) : 0;
+        double sbW = verticalScrollBar.prefWidth(-1);
+        double sbH = horizontalScrollBar.prefHeight(-1);
+        double lineH = getSkinnable().calculateLineHeight();
+        int totalVisualLines = totalVisualLines();
+        double maxContentWidth = maxContentWidth();
+
+        boolean needV = false;
+        boolean needH = false;
+        for (int i = 0; i < 2; i++) {
+            double availH = Math.max(0, contentHeight - (needH ? sbH : 0));
+            double availW = Math.max(0, contentWidth - (needV ? sbW : 0));
+            needV = totalVisualLines > Math.max(1, availH / lineH);
+            needH = maxContentWidth > Math.max(0, availW - gutterWidth());
+        }
+        verticalScrollBar.setVisible(needV);
+        horizontalScrollBar.setVisible(needH);
+
+        double sw = needV ? sbW : 0;
+        double sh = needH ? sbH : 0;
 
         double canvasW = Math.max(0, contentWidth - sw);
         double canvasH = Math.max(0, contentHeight - sh);
@@ -381,21 +403,10 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         redraw();
     }
 
-    /** {@inheritDoc} 基于全文实测最宽行加内边距，最小 200。 */
+    /** {@inheritDoc} 基于最长行实测宽度加内边距，最小 200。 */
     @Override
     protected double computePrefWidth(double height, double topInset, double rightInset, double bottomInset, double leftInset) {
-        JFXEditor editor = getSkinnable();
-        int totalLines = editor.document().getLineCount();
-
-        double maxContentWidth = 0;
-        for (int i = 0; i < totalLines; i++) {
-            String lineText = editor.document().getLine(i);
-            if (lineText != null) {
-                double lineW = measureWidth(lineText);
-                if (lineW > maxContentWidth) maxContentWidth = lineW;
-            }
-        }
-        double contentBased = gutterWidth() + maxContentWidth + CONTENT_PADDING * 2;
+        double contentBased = gutterWidth() + maxContentWidth() + CONTENT_PADDING * 2;
         return Math.max(contentBased, computeMinWidth(height, topInset, rightInset, bottomInset, leftInset));
     }
 
@@ -425,23 +436,37 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         updateScrollBarBounds(canvas.getWidth(), canvas.getHeight());
     }
 
+    /** @return 总视觉行数 = 文档行 + 渲染层声明的额外行 */
+    private int totalVisualLines() {
+        return getSkinnable().document().getLineCount() + buildOffsetMap().totalExtraLines();
+    }
+
+    /** @return 内容最大像素宽度：最长行行号由文档缓存直供，只实测这一行 */
+    private double maxContentWidth() {
+        Document doc = getSkinnable().document();
+        int line = doc.getMaxLineLengthLine();
+        return line < 0 ? 0 : measureWidth(doc.getLine(line));
+    }
+
     /**
      * 刷新滚动条范围与可见性：总视觉行 = 文档行 + 偏移表额外行；
-     * 垂直条按视觉行、水平条按实测最宽行像素，并钳制当前值。
+     * 垂直条按视觉行、水平条按最长行实测像素，并钳制当前值。
+     * 子节点均非托管，可见性翻转不会自动触发布局，须主动请求
+     * 重排以让画布回收/让出滚动条空间。
      */
     private void updateScrollBarBounds(double canvasW, double canvasH) {
         if (canvasW <= 0 || canvasH <= 0) return;
         JFXEditor editor = getSkinnable();
-        int totalLines = editor.document().getLineCount();
-
-        int totalExtraLines = buildOffsetMap().totalExtraLines();
 
         double lineH = editor.calculateLineHeight();
         double visibleLines = Math.max(1, canvasH / lineH);
-        int totalVisualLines = totalLines + totalExtraLines;
+        int totalVisualLines = totalVisualLines();
 
         boolean needV = totalVisualLines > visibleLines;
-        verticalScrollBar.setVisible(needV);
+        if (needV != verticalScrollBar.isVisible()) {
+            verticalScrollBar.setVisible(needV);
+            editor.requestLayout();
+        }
         if (!needV) {
             verticalScrollBar.setMax(0);
             verticalScrollBar.setVisibleAmount(0);
@@ -455,17 +480,13 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
             }
         }
 
-        double maxContentWidth = 0;
-        for (int i = 0; i < totalLines; i++) {
-            String lineText = editor.document().getLine(i);
-            if (lineText != null) {
-                double lineW = measureWidth(lineText);
-                if (lineW > maxContentWidth) maxContentWidth = lineW;
-            }
-        }
+        double maxContentWidth = maxContentWidth();
         double visibleWidth = Math.max(0, canvasW - gutterWidth());
         boolean needH = maxContentWidth > visibleWidth;
-        horizontalScrollBar.setVisible(needH);
+        if (needH != horizontalScrollBar.isVisible()) {
+            horizontalScrollBar.setVisible(needH);
+            editor.requestLayout();
+        }
         if (!needH) {
             horizontalScrollBar.setMax(0);
             horizontalScrollBar.setVisibleAmount(0);

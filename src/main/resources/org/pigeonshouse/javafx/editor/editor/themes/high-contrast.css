@@ -16,30 +16,6 @@
     -fx-background-color: #000000;
 }
 
-.demo-toolbar {
-    -fx-background-color: #000000;
-    -fx-border-color: transparent transparent #ffffff transparent;
-    -fx-padding: 6 10 6 10;
-}
-
-.demo-toolbar .combo-box,
-.demo-toolbar .spinner {
-    -fx-border-color: #ffffff;
-    -fx-border-width: 1;
-}
-
-.demo-status-bar {
-    -fx-background-color: #000000;
-    -fx-border-color: #ffffff transparent transparent transparent;
-    -fx-padding: 3 10 3 10;
-}
-
-.demo-status-bar .label {
-    -fx-text-fill: #ffff00;
-    -fx-font-size: 12px;
-    -fx-font-weight: bold;
-}
-
 /* ==================== 编辑器主体 ==================== */
 
 .editor {

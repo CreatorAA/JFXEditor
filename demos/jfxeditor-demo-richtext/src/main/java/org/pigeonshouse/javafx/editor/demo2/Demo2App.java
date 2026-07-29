@@ -80,7 +80,7 @@ public class Demo2App extends Application {
         refreshStatus();
 
         Scene scene = new Scene(root, 1200, 820);
-        scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
+        scene.getStylesheets().setAll(EditorTheme.DEFAULT.getStylesheet());
         primaryStage.setTitle("JFXEditor Demo2 — 标记实时渲染为活组件");
         primaryStage.setScene(scene);
         primaryStage.show();

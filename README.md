@@ -17,7 +17,7 @@
 - 🌈 **语法高亮** —— 内置 Tree-sitter（Java）与正则（Java / JSON）两套高亮引擎，异步高亮不阻塞 UI
 - 🔌 **高拓展性** —— 自定义渲染层（RenderLayer）、装饰模型（Decoration）、按键绑定、缩进策略均可插拔
 - 📄 **多文档模型** —— 内存文档 / 分页大文件文档，基于 GapBuffer，支持撤销重做
-- 🎯 **四套内置主题** —— Dark / Light / Purple / High Contrast
+- 🎯 **四套内置主题** —— Default / Light / Purple / High Contrast
 
 ## 📦 环境要求
 
@@ -33,7 +33,7 @@
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.3-preview</version>
+    <version>1.4-preview</version>
 </dependency>
 ```
 
@@ -47,7 +47,7 @@ editor.document().setText("public class Demo {}\n");
 editor.setHighlighter(TreeSitterHighlighter.forJava()); // 启用语法高亮
 
 // 应用内置主题（场景级或控件级均可）
-scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
+scene.getStylesheets().setAll(EditorTheme.DEFAULT.getStylesheet());
 ```
 
 ### FXML 方式
