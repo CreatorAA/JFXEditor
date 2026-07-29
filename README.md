@@ -77,8 +77,7 @@ scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
 
 ## 🖥️ 运行演示
 
-演示程序位于 [demos/](demos) 目录，是三个独立的 Maven 工程（依赖 Maven Central
-上的 jfxeditor 构件，不随本库打包发布）：
+演示程序位于 [demos/](demos) 目录：
 
 | 工程 | 演示内容 |
 | ---- | ---- |
@@ -91,8 +90,6 @@ scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
 cd demos/jfxeditor-demo-css
 mvn javafx:run
 ```
-
-> 若本地仓库中没有对应版本的 jfxeditor 构件，先在库根目录执行 `mvn install`。
 
 ## 📄 开源协议
 
