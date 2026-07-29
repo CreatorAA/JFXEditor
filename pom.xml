@@ -4,9 +4,33 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.pigeonshouse.javafx.editor</groupId>
-    <artifactId>JFXEditor</artifactId>
+    <groupId>io.github.CreatorAA</groupId>
+    <artifactId>jfxeditor</artifactId>
     <version>1.2-preview</version>
+
+    <name>JFXEditor</name>
+    <description>Canvas-based JavaFX code editor component with Tree-sitter syntax highlighting</description>
+    <url>https://github.com/CreatorAA/JFXEditor</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>PigeonsHouse</name>
+            <url>https://github.com/CreatorAA</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/CreatorAA/JFXEditor.git</connection>
+        <developerConnection>scm:git:ssh://github.com/CreatorAA/JFXEditor.git</developerConnection>
+        <url>https://github.com/CreatorAA/JFXEditor</url>
+    </scm>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
@@ -37,7 +61,7 @@
             <version>${javafx.version}</version>
         </dependency>
 
-        <!-- JUnit 测试 -->
+        <!-- JUnit test -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -75,6 +99,12 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
@@ -88,12 +118,69 @@
                     </argLine>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>org.pigeonshouse.javafx.editor.demo.CssHotReloadDemo</mainClass>
+                </configuration>
+            </plugin>
+
+            <!-- 源码 jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Javadoc jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.11.2</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <doclint>none</doclint>
+                    <quiet>true</quiet>
+                </configuration>
+            </plugin>
+
+            <!-- GPG 签名 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.2.7</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals><goal>sign</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Maven Central 发布 -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
                 </configuration>
             </plugin>
         </plugins>

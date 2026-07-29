@@ -24,6 +24,16 @@
 | JavaFX | 23.0.1 |
 | Maven | 3.x |
 
+## 📥 Maven 依赖
+
+```xml
+<dependency>
+    <groupId>io.github.CreatorAA</groupId>
+    <artifactId>jfxeditor</artifactId>
+    <version>1.2-preview</version>
+</dependency>
+```
+
 ## 🚀 快速上手
 
 ### Java 代码方式
