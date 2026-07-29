@@ -210,6 +210,40 @@ public interface Document {
     void endBatch();
 
     /**
+     * 开启复合撤销单元（支持嵌套，嵌套层合并到最外层）。
+     *
+     * <p>与 {@link #beginBatch()} 职责正交：批量只聚合“事件通知”，
+     * 而复合只聚合“撤销单元”——期间的全部 insert/delete 在最外层
+     * {@link #endCompoundEdit()} 时合并为单个撤销条目，一次
+     * {@link #undo()} 即可整体回滚（多光标编辑的批量撤销依赖此
+     * 机制）。两者可叠加使用。</p>
+     *
+     * <p><strong>用法示例（多光标插入成为单一撤销单元）：</strong></p>
+     * <pre>{@code
+     * doc.beginCompoundEdit();
+     * try {
+     *     doc.insert(0, 0, "x");        // 光标 1
+     *     doc.insert(1, 0, "x");        // 光标 2
+     * } finally {
+     *     doc.endCompoundEdit();
+     * }
+     * doc.undo();                       // 一次撤销同时回滚两处插入
+     * }</pre>
+     *
+     * <p>应与 {@link #endCompoundEdit()} 成对调用（建议用
+     * {@code try-finally}）。</p>
+     */
+    void beginCompoundEdit();
+
+    /**
+     * 结束复合撤销单元；最外层结束时把期间的全部编辑聚合为
+     * 单个撤销条目入栈（期间无编辑则不产生条目）。
+     *
+     * @throws IllegalStateException 无匹配的 {@link #beginCompoundEdit()} 时
+     */
+    void endCompoundEdit();
+
+    /**
      * 注册文档变更监听器（回调在编辑线程上同步执行）。
      *
      * @param listener 监听器，不可为 {@code null}

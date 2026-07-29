@@ -6,7 +6,7 @@
 
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.2-preview</version>
+    <version>1.3-preview</version>
 
     <name>JFXEditor</name>
     <description>Canvas-based JavaFX code editor component with Tree-sitter syntax highlighting</description>
@@ -116,15 +116,6 @@
                         --add-opens javafx.base/java.lang.reflect=ALL-UNNAMED
                         --enable-native-access=ALL-UNNAMED
                     </argLine>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.openjfx</groupId>
-                <artifactId>javafx-maven-plugin</artifactId>
-                <version>0.0.8</version>
-                <configuration>
-                    <mainClass>org.pigeonshouse.javafx.editor.demo.CssHotReloadDemo</mainClass>
                 </configuration>
             </plugin>
 

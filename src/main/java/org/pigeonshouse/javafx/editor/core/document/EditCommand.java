@@ -1,5 +1,7 @@
 package org.pigeonshouse.javafx.editor.core.document;
 
+import java.util.List;
+
 /**
  * 一次撤销/重做执行后的结果。
  *
@@ -85,5 +87,37 @@ record DeleteEdit(int offset, String deletedText) implements EditCommand {
     public EditResult redo(ReplayableDocument document) {
         document.replaceRange(offset, deletedText.length(), "");
         return new EditResult(offset, offset, offset + deletedText.length(), offset, deletedText, "");
+    }
+}
+
+/**
+ * 复合命令：把多条子命令聚合为单个撤销单元（多光标编辑使用）。
+ *
+ * <p>撤销时按子命令入组的<em>逆序</em>逐个回放反向操作，重做时按
+ * <em>正序</em>逐个重放——与子命令当初的执行顺序互逆，保证各子
+ * 命令记录的全局偏移始终在当时的文档快照上成立。单次回放的
+ * 聚合事件由 {@link UndoManager} 统一补发（粗粒度行级事件），
+ * 返回的 {@link EditResult} 仅供定位建议光标。</p>
+ *
+ * @param commands 子命令列表（按原始执行顺序，至少两条）
+ */
+record CompoundEdit(List<EditCommand> commands) implements EditCommand {
+
+    @Override
+    public EditResult undo(ReplayableDocument document) {
+        EditResult last = null;
+        for (int i = commands.size() - 1; i >= 0; i--) {
+            last = commands.get(i).undo(document);
+        }
+        return last;
+    }
+
+    @Override
+    public EditResult redo(ReplayableDocument document) {
+        EditResult last = null;
+        for (EditCommand command : commands) {
+            last = command.redo(document);
+        }
+        return last;
     }
 }

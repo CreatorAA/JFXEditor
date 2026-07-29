@@ -1,25 +1,8 @@
 package org.pigeonshouse.javafx.editor.editor;
 
 import javafx.beans.InvalidationListener;
-import javafx.beans.property.DoubleProperty;
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.Property;
-import javafx.beans.property.ReadOnlyLongProperty;
-import javafx.beans.property.ReadOnlyLongWrapper;
-import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.StringProperty;
-import javafx.css.CssMetaData;
-import javafx.css.FontCssMetaData;
-import javafx.css.PseudoClass;
-import javafx.css.SimpleStyleableDoubleProperty;
-import javafx.css.SimpleStyleableObjectProperty;
-import javafx.css.StyleConverter;
-import javafx.css.Styleable;
-import javafx.css.StyleableDoubleProperty;
-import javafx.css.StyleableObjectProperty;
-import javafx.css.StyleableProperty;
-import javafx.css.StyleableStringProperty;
+import javafx.beans.property.*;
+import javafx.css.*;
 import javafx.scene.control.Control;
 import javafx.scene.control.Skin;
 import javafx.scene.input.Clipboard;
@@ -37,21 +20,9 @@ import org.pigeonshouse.javafx.editor.editor.indent.IndentStrategies;
 import org.pigeonshouse.javafx.editor.editor.indent.IndentStrategy;
 import org.pigeonshouse.javafx.editor.editor.input.KeyBindingRegistry;
 import org.pigeonshouse.javafx.editor.editor.render.RenderLayer;
-import org.pigeonshouse.javafx.editor.syntax.HighlightEngine;
-import org.pigeonshouse.javafx.editor.syntax.HighlightStyle;
-import org.pigeonshouse.javafx.editor.syntax.HighlightTheme;
-import org.pigeonshouse.javafx.editor.syntax.HighlightUpdateListener;
-import org.pigeonshouse.javafx.editor.syntax.SyntaxHighlighter;
-import org.pigeonshouse.javafx.editor.syntax.TokenType;
-import org.pigeonshouse.javafx.editor.syntax.TreeSitterHighlighter;
+import org.pigeonshouse.javafx.editor.syntax.*;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
@@ -97,7 +68,7 @@ import java.util.function.Function;
 public class JFXEditor extends Control {
 
     /** 组件版本号。 */
-    public static final String VERSION = "1.2-preview";
+    public static final String VERSION = "1.3-preview";
 
     /** 文档模型，构造后终身不换。 */
     private final Document document;
@@ -109,7 +80,7 @@ public class JFXEditor extends Control {
     private final List<RenderLayer> renderLayers;
     /** 主光标。 */
     private final EditorCaret primaryCaret;
-    /** 额外光标列表（多光标预留）。 */
+    /** 额外光标列表（多光标编辑，主光标不在其中）。 */
     private final List<EditorCaret> extraCarets;
     /** 高亮引擎；未设置高亮器时为 {@code null}。 */
     private HighlightEngine highlightEngine;
@@ -178,6 +149,18 @@ public class JFXEditor extends Control {
             };
     private static final CssMetaData<JFXEditor, Number> GUTTER_FONT_SCALE_META =
             sizeMeta("-editor-gutter-font-scale", 0.85, e -> e.gutterFontScale);
+    private static final CssMetaData<JFXEditor, Boolean> CARET_VISIBLE_META =
+            new CssMetaData<>("-editor-caret-visible", StyleConverter.getBooleanConverter(), Boolean.TRUE) {
+                @Override
+                public boolean isSettable(JFXEditor editor) {
+                    return !editor.caretVisible.isBound();
+                }
+
+                @Override
+                public StyleableProperty<Boolean> getStyleableProperty(JFXEditor editor) {
+                    return editor.caretVisible;
+                }
+            };
     private static final CssMetaData<JFXEditor, Color> GHOST_TEXT_COLOR_META =
             colorMeta("-editor-ghost-text-color", Color.rgb(110, 110, 115, 0.6), e -> e.ghostTextColor);
     private static final FontCssMetaData<JFXEditor> FONT_META =
@@ -283,7 +266,7 @@ public class JFXEditor extends Control {
         list.addAll(List.of(BACKGROUND_META, TEXT_COLOR_META, SELECTION_COLOR_META, CURRENT_LINE_META,
                 CARET_COLOR_META, GUTTER_BACKGROUND_META, GUTTER_TEXT_META, AFTER_TEXT_META,
                 GUTTER_WIDTH_META, LINE_HEIGHT_MULTIPLIER_META, FONT_META,
-                CARET_WIDTH_META, CARET_BLINK_RATE_META, GUTTER_FONT_SCALE_META,
+                CARET_WIDTH_META, CARET_BLINK_RATE_META, CARET_VISIBLE_META, GUTTER_FONT_SCALE_META,
                 GHOST_TEXT_COLOR_META));
         list.addAll(TOKEN_COLOR_METAS.values());
         list.addAll(TOKEN_STYLE_METAS.values());
@@ -348,6 +331,9 @@ public class JFXEditor extends Control {
             new SimpleStyleableDoubleProperty(CARET_WIDTH_META, this, "caretWidth", 2.0);
     private final StyleableObjectProperty<Duration> caretBlinkRate =
             new SimpleStyleableObjectProperty<>(CARET_BLINK_RATE_META, this, "caretBlinkRate", Duration.millis(530));
+    /** 光标可见性（CSS {@code -editor-caret-visible}，默认 true；关闭后皮肤不绘制任何光标）。 */
+    private final SimpleStyleableBooleanProperty caretVisible =
+            new SimpleStyleableBooleanProperty(CARET_VISIBLE_META, this, "caretVisible", true);
     private final StyleableDoubleProperty gutterFontScale =
             new SimpleStyleableDoubleProperty(GUTTER_FONT_SCALE_META, this, "gutterFontScale", 0.85);
     private final StyleableObjectProperty<Color> ghostTextColor =
@@ -476,9 +462,141 @@ public class JFXEditor extends Control {
         return primaryCaret;
     }
 
-    /** @return 额外光标列表（多光标预留） */
+    /** @return 额外光标列表（不含主光标，写时复制可安全遍历） */
     public List<EditorCaret> extraCarets() {
         return extraCarets;
+    }
+
+    /**
+     * 返回全部光标的只读快照：主光标恒在首位，额外光标
+     * 按添加顺序在后。
+     *
+     * @return 全部光标的不可变列表
+     */
+    public List<EditorCaret> allCarets() {
+        List<EditorCaret> all = new ArrayList<>(extraCarets.size() + 1);
+        all.add(primaryCaret);
+        all.addAll(extraCarets);
+        return Collections.unmodifiableList(all);
+    }
+
+    /** @return 存在额外光标（多光标状态）时返回 {@code true} */
+    public boolean hasMultipleCarets() {
+        return !extraCarets.isEmpty();
+    }
+
+    /**
+     * 在指定位置添加一个额外光标（坐标自动鉗制到文档范围）。
+     *
+     * @param line 目标行（0 起，自动鉗制）
+     * @param col  目标列（0 起，自动鉗制）
+     * @return 新增的光标；与既有光标（含主光标）重合时返回 {@code null}
+     */
+    public EditorCaret addCaret(int line, int col) {
+        int[] clamped = clampToDocument(line, col);
+        if (isCaretAt(clamped[0], clamped[1])) {
+            return null;
+        }
+        EditorCaret caret = new EditorCaret();
+        caret.moveTo(clamped[0], clamped[1]);
+        extraCarets.add(caret);
+        return caret;
+    }
+
+    /**
+     * 移除一个额外光标（主光标不可移除）。
+     *
+     * @param caret 待移除的光标
+     * @return 确实移除时返回 {@code true}
+     */
+    public boolean removeCaret(EditorCaret caret) {
+        return extraCarets.remove(caret);
+    }
+
+    /**
+     * 在指定位置切换额外光标（Alt+点击语义）：命中既有额外
+     * 光标则移除，命中主光标则无操作，否则添加。
+     *
+     * @param line 目标行（自动鉗制）
+     * @param col  目标列（自动鉗制）
+     * @return 光标集合确实发生变化时返回 {@code true}
+     */
+    public boolean toggleCaretAt(int line, int col) {
+        int[] clamped = clampToDocument(line, col);
+        for (EditorCaret c : extraCarets) {
+            if (c.line() == clamped[0] && c.column() == clamped[1]) {
+                extraCarets.remove(c);
+                return true;
+            }
+        }
+        if (primaryCaret.line() == clamped[0] && primaryCaret.column() == clamped[1]) {
+            return false;
+        }
+        return addCaret(clamped[0], clamped[1]) != null;
+    }
+
+    /**
+     * 清除全部额外光标，回到单光标状态。
+     *
+     * @return 确实清除了至少一个时返回 {@code true}
+     */
+    public boolean clearExtraCarets() {
+        if (extraCarets.isEmpty()) {
+            return false;
+        }
+        extraCarets.clear();
+        return true;
+    }
+
+    /** 合并与主光标或彼此重合的额外光标（编辑/移动后调用）。 */
+    void dedupeCarets() {
+        if (extraCarets.isEmpty()) {
+            return;
+        }
+        List<EditorCaret> kept = new ArrayList<>();
+        kept.add(primaryCaret);
+        List<EditorCaret> duplicated = new ArrayList<>();
+        for (EditorCaret c : extraCarets) {
+            boolean dup = false;
+            for (EditorCaret k : kept) {
+                if (k.line() == c.line() && k.column() == c.column()) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup) {
+                duplicated.add(c);
+            } else {
+                kept.add(c);
+            }
+        }
+        if (!duplicated.isEmpty()) {
+            extraCarets.removeAll(duplicated);
+        }
+    }
+
+    /** 判断指定位置是否已有光标（含主光标）。 */
+    private boolean isCaretAt(int line, int col) {
+        if (primaryCaret.line() == line && primaryCaret.column() == col) {
+            return true;
+        }
+        for (EditorCaret c : extraCarets) {
+            if (c.line() == line && c.column() == col) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 把行列鉗制到文档合法范围，返回 {行, 列} 数组。 */
+    private int[] clampToDocument(int line, int col) {
+        int lineCount = document.getLineCount();
+        if (lineCount == 0) {
+            return new int[]{0, 0};
+        }
+        int clampedLine = Math.max(0, Math.min(line, lineCount - 1));
+        int maxCol = document.getLineLength(clampedLine);
+        return new int[]{clampedLine, Math.max(0, Math.min(col, maxCol))};
     }
 
     /** @return 高亮引擎；未设置高亮器时为 {@code null} */
@@ -734,6 +852,29 @@ public class JFXEditor extends Control {
         gutterVisible.set(visible);
     }
 
+    /** @return 光标是否显示（CSS {@code -editor-caret-visible}，默认 true） */
+    public boolean isCaretVisible() {
+        return caretVisible.get();
+    }
+
+    /** @return 光标可见性属性（CSS 可样式化） */
+    public BooleanProperty caretVisibleProperty() {
+        return caretVisible;
+    }
+
+    /**
+     * 设置光标是否显示（等价于 CSS {@code -editor-caret-visible}，
+     * 代码设置为 USER 起源，不会被 UA 默认样式覆盖）。
+     *
+     * <p>关闭后皮肤会隐藏主光标矩形、停止闪烁，且不再绘制
+     * 额外光标；适用于只读预览等无需光标的场景。</p>
+     *
+     * @param visible 是否显示光标
+     */
+    public void setCaretVisible(boolean visible) {
+        caretVisible.set(visible);
+    }
+
     /** @return 是否只读（只读时所有编辑操作静默忽略） */
     public boolean isReadOnly() {
         return readOnly.get();
@@ -876,25 +1017,14 @@ public class JFXEditor extends Control {
      * 空文档归零。随后触发光标监听器并写入导航属性。</p>
      *
      * @param line   目标行（0 起，自动钳制）
-     * @param column 目标列（0 起，自动钳制）
+     * @param column 目标列（0 起，自动钳制）；额外光标会被同步清除
      */
     public void gotoPosition(int line, int column) {
-        int lineCount = document.getLineCount();
-
-        int clampedLine;
-        int clampedCol;
-        if (lineCount == 0) {
-            clampedLine = 0;
-            clampedCol = 0;
-        } else {
-            clampedLine = Math.max(0, Math.min(line, lineCount - 1));
-            int maxCol = document.getLineLength(clampedLine);
-            clampedCol = Math.max(0, Math.min(column, maxCol));
-        }
-
-        primaryCaret.moveTo(clampedLine, clampedCol);
+        int[] clamped = clampToDocument(line, column);
+        clearExtraCarets();
+        primaryCaret.moveTo(clamped[0], clamped[1]);
         fireCaretChanged(primaryCaret.line(), primaryCaret.column());
-        navigateToPosition.set(new Position(clampedLine, clampedCol));
+        navigateToPosition.set(new Position(clamped[0], clamped[1]));
     }
 
     /** @return 导航目标属性（Skin 监听它执行滚动定位） */
@@ -903,13 +1033,19 @@ public class JFXEditor extends Control {
     }
 
     /**
-     * 在主光标处插入文本并把光标移到插入结束位置。
+     * 在光标处插入文本并把光标移到插入结束位置。
+     *
+     * <p>多光标状态下会对每个光标先删除其选区再插入，并自动
+     * 重映射后续光标位置（见 {@link #insertTextAtAllCarets}）。</p>
      *
      * @param text 待插入文本
-     * @return 插入结束位置的折叠区间；只读时返回光标处空区间且不做任何事
+     * @return 主光标插入结束位置的折叠区间；只读时返回光标处空区间且不做任何事
      */
     public TextRange insertText(String text) {
         if (isReadOnly()) return TextRange.fromPosition(new Position(primaryCaret.line(), primaryCaret.column()));
+        if (!extraCarets.isEmpty()) {
+            return insertTextAtAllCarets(text);
+        }
         int line = primaryCaret.line();
         int col = primaryCaret.column();
         TextRange result = document.insert(line, col, text);
@@ -920,12 +1056,56 @@ public class JFXEditor extends Control {
     }
 
     /**
+     * 多光标插入：按文档序升序处理每个光标（先删其选区再插入），
+     * 每次编辑后把尚未处理的光标按坐标映射规则平移；全程用
+     * 复合撤销单元与批量事务包裹（一次 undo 整体回滚），结束后
+     * 合并重合光标。
+     */
+    private TextRange insertTextAtAllCarets(String text) {
+        List<EditorCaret> sorted = sortedCaretsByPosition();
+        TextRange primaryResult = null;
+        document.beginCompoundEdit();
+        document.beginBatch();
+        try {
+            for (int i = 0; i < sorted.size(); i++) {
+                EditorCaret caret = sorted.get(i);
+                deleteCaretSelection(caret, sorted, i + 1);
+                int startLine = caret.line();
+                int startCol = caret.column();
+                TextRange r = document.insert(startLine, startCol, text);
+                Position end = r.end();
+                caret.moveTo(end.line(), end.column());
+                for (int j = i + 1; j < sorted.size(); j++) {
+                    remapCaret(sorted.get(j), (l, c) ->
+                            mapAfterInsert(l, c, startLine, startCol, end.line(), end.column()));
+                }
+                if (caret == primaryCaret) {
+                    primaryResult = r;
+                }
+            }
+        } finally {
+            document.endBatch();
+            document.endCompoundEdit();
+        }
+        dedupeCarets();
+        fireCaretChanged(primaryCaret.line(), primaryCaret.column());
+        return primaryResult != null ? primaryResult
+                : TextRange.fromPosition(new Position(primaryCaret.line(), primaryCaret.column()));
+    }
+
+    /**
      * 删除当前选区：光标落在选区起点并清除选区。
      *
-     * @return 删除后的光标位置（折叠区间）；只读或无选区时返回零区间
+     * <p>多光标状态下会删除每个光标各自的选区并重映射
+     * 后续光标位置。</p>
+     *
+     * @return 删除后的主光标位置（折叠区间）；只读或无选区时返回零区间
      */
     public TextRange deleteSelection() {
         if (isReadOnly()) return TextRange.fromPosition(Position.ZERO);
+        if (!extraCarets.isEmpty()) {
+            return deleteSelectionAtAllCarets();
+        }
         if (!primaryCaret.hasSelection()) return TextRange.fromPosition(Position.ZERO);
         TextRange range = TextRange.of(
                 primaryCaret.selectionStartLine(), primaryCaret.selectionStartCol(),
@@ -937,8 +1117,288 @@ public class JFXEditor extends Control {
         return result;
     }
 
+    /** 多光标删选区：升序删除每个光标的选区并重映射后续光标；整体为单个撤销单元。 */
+    private TextRange deleteSelectionAtAllCarets() {
+        List<EditorCaret> sorted = sortedCaretsByPosition();
+        boolean any = false;
+        for (EditorCaret c : sorted) {
+            if (c.hasSelection()) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) return TextRange.fromPosition(Position.ZERO);
+        document.beginCompoundEdit();
+        document.beginBatch();
+        try {
+            for (int i = 0; i < sorted.size(); i++) {
+                deleteCaretSelection(sorted.get(i), sorted, i + 1);
+            }
+        } finally {
+            document.endBatch();
+            document.endCompoundEdit();
+        }
+        dedupeCarets();
+        fireCaretChanged(primaryCaret.line(), primaryCaret.column());
+        return TextRange.fromPosition(new Position(primaryCaret.line(), primaryCaret.column()));
+    }
+
+    /**
+     * 退格删除：有选区删选区；列 0 时合并到上一行尾部。
+     *
+     * <p>多光标状态下对每个光标独立执行，重合光标自动合并。</p>
+     *
+     * @return 文档确实发生变化时返回 {@code true}；只读时返回 {@code false}
+     */
+    public boolean deleteBackward() {
+        if (isReadOnly()) return false;
+        if (extraCarets.isEmpty()) {
+            return deleteBackwardSingle();
+        }
+        List<EditorCaret> sorted = sortedCaretsByPosition();
+        boolean changed = false;
+        document.beginCompoundEdit();
+        document.beginBatch();
+        try {
+            for (int i = 0; i < sorted.size(); i++) {
+                EditorCaret caret = sorted.get(i);
+                if (caret.hasSelection()) {
+                    deleteCaretSelection(caret, sorted, i + 1);
+                    changed = true;
+                    continue;
+                }
+                int line = caret.line();
+                int col = caret.column();
+                int startLine;
+                int startCol;
+                if (col > 0) {
+                    startLine = line;
+                    startCol = col - 1;
+                } else if (line > 0) {
+                    startLine = line - 1;
+                    startCol = document.getLineLength(line - 1);
+                } else {
+                    continue;
+                }
+                document.delete(TextRange.of(startLine, startCol, line, col));
+                caret.moveTo(startLine, startCol);
+                for (int j = i + 1; j < sorted.size(); j++) {
+                    remapCaret(sorted.get(j), (l, c) ->
+                            mapAfterDelete(l, c, startLine, startCol, line, col));
+                }
+                changed = true;
+            }
+        } finally {
+            document.endBatch();
+            document.endCompoundEdit();
+        }
+        dedupeCarets();
+        if (changed) {
+            fireCaretChanged(primaryCaret.line(), primaryCaret.column());
+        }
+        return changed;
+    }
+
+    /** 单光标退格删除。 */
+    private boolean deleteBackwardSingle() {
+        EditorCaret c = primaryCaret;
+        if (c.hasSelection()) {
+            deleteSelection();
+            return true;
+        }
+        if (c.column() > 0) {
+            document.delete(TextRange.of(c.line(), c.column() - 1, c.line(), c.column()));
+            c.moveTo(c.line(), c.column() - 1);
+            fireCaretChanged(c.line(), c.column());
+            return true;
+        }
+        if (c.line() > 0) {
+            int prevLineLen = document.getLineLength(c.line() - 1);
+            TextRange result = document.delete(
+                    TextRange.of(c.line() - 1, prevLineLen, c.line(), 0));
+            Position newPos = result.end();
+            c.moveTo(newPos.line(), newPos.column());
+            fireCaretChanged(c.line(), c.column());
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 前向删除：有选区删选区；行尾时合并下一行。
+     *
+     * <p>多光标状态下对每个光标独立执行，重合光标自动合并。</p>
+     *
+     * @return 文档确实发生变化时返回 {@code true}；只读时返回 {@code false}
+     */
+    public boolean deleteForward() {
+        if (isReadOnly()) return false;
+        if (extraCarets.isEmpty()) {
+            return deleteForwardSingle();
+        }
+        List<EditorCaret> sorted = sortedCaretsByPosition();
+        boolean changed = false;
+        document.beginCompoundEdit();
+        document.beginBatch();
+        try {
+            for (int i = 0; i < sorted.size(); i++) {
+                EditorCaret caret = sorted.get(i);
+                if (caret.hasSelection()) {
+                    deleteCaretSelection(caret, sorted, i + 1);
+                    changed = true;
+                    continue;
+                }
+                int line = caret.line();
+                int col = caret.column();
+                int endLine;
+                int endCol;
+                if (col < document.getLineLength(line)) {
+                    endLine = line;
+                    endCol = col + 1;
+                } else if (line < document.getLineCount() - 1) {
+                    endLine = line + 1;
+                    endCol = 0;
+                } else {
+                    continue;
+                }
+                document.delete(TextRange.of(line, col, endLine, endCol));
+                for (int j = i + 1; j < sorted.size(); j++) {
+                    remapCaret(sorted.get(j), (l, c) ->
+                            mapAfterDelete(l, c, line, col, endLine, endCol));
+                }
+                changed = true;
+            }
+        } finally {
+            document.endBatch();
+            document.endCompoundEdit();
+        }
+        dedupeCarets();
+        if (changed) {
+            fireCaretChanged(primaryCaret.line(), primaryCaret.column());
+        }
+        return changed;
+    }
+
+    /** 单光标前向删除。 */
+    private boolean deleteForwardSingle() {
+        EditorCaret c = primaryCaret;
+        if (c.hasSelection()) {
+            deleteSelection();
+            return true;
+        }
+        if (c.column() < document.getLineLength(c.line())) {
+            document.delete(TextRange.of(c.line(), c.column(), c.line(), c.column() + 1));
+            fireCaretChanged(c.line(), c.column());
+            return true;
+        }
+        if (c.line() < document.getLineCount() - 1) {
+            document.delete(TextRange.of(c.line(), c.column(), c.line() + 1, 0));
+            fireCaretChanged(c.line(), c.column());
+            return true;
+        }
+        return false;
+    }
+
+    /** 删除单个光标的选区并重映射后续光标；无选区时无操作。 */
+    private void deleteCaretSelection(EditorCaret caret, List<EditorCaret> sorted, int fromIndex) {
+        if (!caret.hasSelection()) {
+            return;
+        }
+        int sl = caret.selectionStartLine();
+        int sc = caret.selectionStartCol();
+        int el = caret.selectionEndLine();
+        int ec = caret.selectionEndCol();
+        document.delete(TextRange.of(sl, sc, el, ec));
+        caret.moveTo(sl, sc);
+        for (int j = fromIndex; j < sorted.size(); j++) {
+            remapCaret(sorted.get(j), (l, c) -> mapAfterDelete(l, c, sl, sc, el, ec));
+        }
+    }
+
+    /** 返回按文档序（选区起点或光标位置）升序排列的全部光标。 */
+    private List<EditorCaret> sortedCaretsByPosition() {
+        List<EditorCaret> sorted = new ArrayList<>(extraCarets.size() + 1);
+        sorted.add(primaryCaret);
+        sorted.addAll(extraCarets);
+        sorted.sort(Comparator
+                .comparingInt((EditorCaret c) -> c.hasSelection() ? c.selectionStartLine() : c.line())
+                .thenComparingInt(c -> c.hasSelection() ? c.selectionStartCol() : c.column()));
+        return sorted;
+    }
+
+    /** 行列坐标映射函数（多光标编辑后的位置平移）。 */
+    @FunctionalInterface
+    private interface PositionMapper {
+        /**
+         * 把一个行列坐标映射到编辑后的新坐标。
+         *
+         * @param line 原行号
+         * @param col  原列号
+         * @return {新行, 新列} 数组
+         */
+        int[] map(int line, int col);
+    }
+
+    /**
+     * 按映射函数平移一个光标的全部坐标（位置与选区锚/焦点）；
+     * 选区被映射后塔缩为空时自动折叠。
+     */
+    private static void remapCaret(EditorCaret caret, PositionMapper mapper) {
+        boolean hadSelection = caret.hasSelection();
+        int[] newPos = mapper.map(caret.line(), caret.column());
+        if (!hadSelection) {
+            caret.moveTo(newPos[0], newPos[1]);
+            return;
+        }
+        int anchorLine = caret.anchorLine();
+        int anchorCol = caret.anchorCol();
+        boolean anchorAtStart = anchorLine == caret.selectionStartLine()
+                && anchorCol == caret.selectionStartCol();
+        int focusLine = anchorAtStart ? caret.selectionEndLine() : caret.selectionStartLine();
+        int focusCol = anchorAtStart ? caret.selectionEndCol() : caret.selectionStartCol();
+        int[] newAnchor = mapper.map(anchorLine, anchorCol);
+        int[] newFocus = mapper.map(focusLine, focusCol);
+        caret.moveTo(newPos[0], newPos[1]);
+        if (newAnchor[0] != newFocus[0] || newAnchor[1] != newFocus[1]) {
+            caret.select(newAnchor[0], newAnchor[1], newFocus[0], newFocus[1]);
+        }
+    }
+
+    /**
+     * 插入后的坐标映射：插入发生在 {@code (sl,sc)}，插入结束于
+     * {@code (el,ec)}；插入点之后（含同点）的坐标向后平移。
+     */
+    private static int[] mapAfterInsert(int line, int col, int sl, int sc, int el, int ec) {
+        if (line == sl && col >= sc) {
+            return new int[]{el, ec + (col - sc)};
+        }
+        if (line > sl) {
+            return new int[]{line + (el - sl), col};
+        }
+        return new int[]{line, col};
+    }
+
+    /**
+     * 删除后的坐标映射：删除区间为 {@code (sl,sc)-(el,ec)}；
+     * 区间前坐标不变，区间内塔缩到起点，区间后向前平移。
+     */
+    private static int[] mapAfterDelete(int line, int col, int sl, int sc, int el, int ec) {
+        if (line < sl || (line == sl && col <= sc)) {
+            return new int[]{line, col};
+        }
+        if (line < el || (line == el && col <= ec)) {
+            return new int[]{sl, sc};
+        }
+        if (line == el) {
+            return new int[]{sl, sc + (col - ec)};
+        }
+        return new int[]{line - (el - sl), col};
+    }
+
     /**
      * 撤销最近一次编辑并把光标移到结果区间末尾。
+     *
+     * <p>撤销后额外光标位置不再可信，会被同步清除。</p>
      *
      * @return 成功撤销返回 {@code true}；无可撤销内容返回 {@code false}
      */
@@ -946,6 +1406,7 @@ public class JFXEditor extends Control {
         if (!document.canUndo()) return false;
         TextRange result = document.undo();
         Position end = result.end();
+        clearExtraCarets();
         primaryCaret.moveTo(end.line(), end.column());
         fireCaretChanged(primaryCaret.line(), primaryCaret.column());
         return true;
@@ -954,12 +1415,15 @@ public class JFXEditor extends Control {
     /**
      * 重做最近一次被撤销的编辑并把光标移到结果区间末尾。
      *
+     * <p>重做后额外光标位置不再可信，会被同步清除。</p>
+     *
      * @return 成功重做返回 {@code true}；无可重做内容返回 {@code false}
      */
     public boolean redo() {
         if (!document.canRedo()) return false;
         TextRange result = document.redo();
         Position end = result.end();
+        clearExtraCarets();
         primaryCaret.moveTo(end.line(), end.column());
         fireCaretChanged(primaryCaret.line(), primaryCaret.column());
         return true;
@@ -998,11 +1462,23 @@ public class JFXEditor extends Control {
     /**
      * 粘贴指定文本：先删除选区再在光标处插入。
      *
+     * <p>多光标状态下“删选区 + 插入”合并为单个复合撤销单元。</p>
+     *
      * @param text 待粘贴文本；只读、{@code null} 或空串时静默返回
      */
     public void paste(String text) {
         if (isReadOnly()) return;
         if (text == null || text.isEmpty()) return;
+        if (!extraCarets.isEmpty()) {
+            document.beginCompoundEdit();
+            try {
+                deleteSelection();
+                insertText(text);
+            } finally {
+                document.endCompoundEdit();
+            }
+            return;
+        }
         if (primaryCaret.hasSelection()) {
             deleteSelection();
         }

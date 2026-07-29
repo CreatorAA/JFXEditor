@@ -1,0 +1,164 @@
+/*
+ * 高对比度主题（High Contrast）—— 纯黑背景 + 高饱和度前景色，
+ * 加粗光标与醒目焦点提示，面向低视力/强光环境。
+ * 作为场景级样式表加载，优先级高于 editor.css（UA 样式表）。
+ */
+
+/* ==================== 全局控件配色 ==================== */
+
+.root {
+    -fx-base: #1a1a1a;
+    -fx-background: #000000;
+    -fx-control-inner-background: #000000;
+    -fx-accent: #ffff00;
+    -fx-focus-color: #ffff00;
+    -fx-faint-focus-color: #ffff0033;
+    -fx-background-color: #000000;
+}
+
+.demo-toolbar {
+    -fx-background-color: #000000;
+    -fx-border-color: transparent transparent #ffffff transparent;
+    -fx-padding: 6 10 6 10;
+}
+
+.demo-toolbar .combo-box,
+.demo-toolbar .spinner {
+    -fx-border-color: #ffffff;
+    -fx-border-width: 1;
+}
+
+.demo-status-bar {
+    -fx-background-color: #000000;
+    -fx-border-color: #ffffff transparent transparent transparent;
+    -fx-padding: 3 10 3 10;
+}
+
+.demo-status-bar .label {
+    -fx-text-fill: #ffff00;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+/* ==================== 编辑器主体 ==================== */
+
+.editor {
+    -editor-background: #000000;
+    -editor-text-color: #ffffff;
+    -editor-selection-color: rgba(0, 120, 215, 0.6);
+    -editor-current-line-color: #1a1a1a;
+    -editor-caret-color: #ffff00;
+    -editor-caret-width: 3;
+    -editor-caret-blink-rate: 600ms;
+    -editor-gutter-background: #0d0d0d;
+    -editor-gutter-text-color: #ffffff;
+    -editor-gutter-font-scale: 0.9;
+    -editor-gutter-width: 56;
+    -editor-after-text-color: #d0d0d0;
+    -editor-ghost-text-color: rgba(220, 220, 220, 0.75);
+    -editor-line-height-multiplier: 1.6;
+    -fx-font-family: "Consolas", "JetBrains Mono", "Cascadia Mono", monospace;
+
+    /* -------- 语法 token 配色 -------- */
+    -editor-token-text: #ffffff;
+    -editor-token-keyword: #ffff00;
+    -editor-token-keyword-style: "bold";
+    -editor-token-keyword-control: #ffff00;
+    -editor-token-keyword-control-style: "bold underline";
+    -editor-token-keyword-declaration: #ffff00;
+    -editor-token-keyword-declaration-style: "bold";
+    -editor-token-keyword-modifier: #ffff00;
+    -editor-token-keyword-modifier-style: "bold";
+    -editor-token-comment: #00e000;
+    -editor-token-comment-style: "italic";
+    -editor-token-comment-block: #00e000;
+    -editor-token-comment-block-style: "italic";
+    -editor-token-comment-doc: #00e000;
+    -editor-token-comment-doc-style: "italic";
+    -editor-token-string: #ff8c42;
+    -editor-token-string-escape: #ffd700;
+    -editor-token-string-escape-style: "bold";
+    -editor-token-number: #ff5cff;
+    -editor-token-number-integer: #ff5cff;
+    -editor-token-number-float: #ff5cff;
+    -editor-token-number-hex: #ff5cff;
+    -editor-token-operator: #ffffff;
+    -editor-token-operator-style: "bold";
+    -editor-token-punctuation: #ffffff;
+    -editor-token-delimiter: #ffffff;
+    -editor-token-type: #00ffff;
+    -editor-token-type-style: "bold";
+    -editor-token-interface: #00ffff;
+    -editor-token-interface-style: "bold italic";
+    -editor-token-function: #ffffff;
+    -editor-token-function-style: "bold";
+    -editor-token-function-declaration: #ffffff;
+    -editor-token-function-declaration-style: "bold underline";
+    -editor-token-function-builtin: #ffffff;
+    -editor-token-function-builtin-style: "bold";
+    -editor-token-variable: #9beeff;
+    -editor-token-variable-builtin: #ffff00;
+    -editor-token-constant: #7fdbff;
+    -editor-token-constant-style: "bold";
+    -editor-token-constant-builtin: #ffff00;
+    -editor-token-constant-builtin-style: "bold";
+    -editor-token-property: #9beeff;
+    -editor-token-parameter: #ffffff;
+    -editor-token-annotation: #ffd700;
+    -editor-token-annotation-style: "bold";
+    -editor-token-label: #ffd700;
+    -editor-token-error: #ff0000;
+    -editor-token-error-style: "bold underline";
+    -editor-token-deprecated: #c0c0c0;
+    -editor-token-deprecated-style: "italic underline";
+    -editor-token-regex: #ff8c42;
+}
+
+/* ==================== 状态伪类 ==================== */
+
+.editor:read-only {
+    -editor-background: #0a0a0a;
+    -editor-text-color: #e0e0e0;
+}
+
+.editor:focused {
+    -editor-caret-color: #ffffff;
+}
+
+.editor:disabled {
+    -fx-opacity: 0.7;
+}
+
+/* ==================== 滚动条 ==================== */
+
+.editor .scroll-bar:vertical,
+.editor .scroll-bar:horizontal {
+    -fx-background-color: #000000;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .track {
+    -fx-background-color: #000000;
+    -fx-border-color: #ffffff;
+    -fx-border-width: 0.5;
+}
+
+.editor .scroll-bar .thumb {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 0;
+}
+
+.editor .scroll-bar .thumb:hover {
+    -fx-background-color: #ffff00;
+}
+
+.editor .scroll-bar .increment-button,
+.editor .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .increment-arrow,
+.editor .scroll-bar .decrement-arrow {
+    -fx-background-color: #ffffff;
+}

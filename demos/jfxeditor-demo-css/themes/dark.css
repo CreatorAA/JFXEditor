@@ -1,0 +1,35 @@
+/*
+ * 暗色主题（Dark）—— 基于 VS Code Dark+ 配色。
+ * 作为场景级样式表加载，优先级高于 editor.css（UA 样式表），
+ * 因此这里声明的全部 -editor-* 属性会覆盖控件默认值。
+ * 语法配色规则：-editor-token-<type> 为颜色，-editor-token-<type>-style
+ * 为空格分隔的 bold/italic/underline 字形组合。
+ */
+
+/* ==================== 全局控件配色 ==================== */
+
+.root {
+    -fx-base: #3c3c3c;
+    -fx-background: #252526;
+    -fx-control-inner-background: #333333;
+    -fx-accent: #007acc;
+    -fx-focus-color: #007acc;
+    -fx-faint-focus-color: #007acc22;
+    -fx-background-color: #252526;
+}
+
+.demo-toolbar {
+    -fx-background-color: #333333;
+    -fx-border-color: transparent transparent #1e1e1e transparent;
+    -fx-padding: 6 10 6 10;
+}
+
+.demo-status-bar {
+    -fx-background-color: #007acc;
+    -fx-padding: 3 10 3 10;
+}
+
+.demo-status-bar .label {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 12px;
+}

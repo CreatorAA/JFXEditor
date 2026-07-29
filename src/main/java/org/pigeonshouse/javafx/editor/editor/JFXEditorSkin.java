@@ -3,7 +3,6 @@ package org.pigeonshouse.javafx.editor.editor;
 import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
-import javafx.application.Platform;
 import javafx.beans.InvalidationListener;
 import javafx.beans.value.ChangeListener;
 import javafx.geometry.Orientation;
@@ -13,13 +12,7 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.ScrollBar;
 import javafx.scene.control.SkinBase;
-import javafx.scene.input.InputMethodRequests;
-import javafx.scene.input.InputMethodTextRun;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyCombination;
-import javafx.scene.input.KeyEvent;
-import javafx.scene.input.MouseEvent;
-import javafx.scene.input.ScrollEvent;
+import javafx.scene.input.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
@@ -41,11 +34,7 @@ import org.pigeonshouse.javafx.editor.editor.render.RenderOffset;
 import org.pigeonshouse.javafx.editor.syntax.HighlightStyle;
 import org.pigeonshouse.javafx.editor.syntax.Token;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -103,9 +92,10 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
     private final ChangeListener<Font> fontListener;
     private final ChangeListener<Boolean> gutterVisibleListener;
+    private final ChangeListener<Boolean> caretVisibleListener;
     private final ChangeListener<Number> layoutSizeListener;
     private final InvalidationListener refreshListener;
-    private final ChangeListener<org.pigeonshouse.javafx.editor.core.model.Position> navigateListener;
+    private final ChangeListener<Position> navigateListener;
     private final InvalidationListener restyleListener;
     private final InvalidationListener caretStyleListener;
     private final InvalidationListener gutterFontScaleListener;
@@ -147,9 +137,10 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
      */
     public JFXEditorSkin(JFXEditor control) {
         super(control);
+        this.helperText = new Text();
+
         this.canvas = new Canvas();
         this.canvas.setCursor(Cursor.TEXT);
-        this.helperText = new Text();
         this.helperText.setFont(control.font());
 
         this.fontListener = (obs, old, val) -> {
@@ -173,7 +164,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         this.cursorNode = new Rectangle(0, 0, control.caretWidth(), 0);
         this.cursorNode.setFill(control.caretColor());
         this.cursorNode.setManaged(false);
-        this.caretVisible = true;
+        this.caretVisible = control.isCaretVisible();
+        this.cursorNode.setVisible(caretVisible);
         this.caretBlink = new Timeline(
                 new KeyFrame(Duration.ZERO, e -> {
                     caretVisible = !caretVisible;
@@ -183,6 +175,20 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         );
         this.caretPause = new PauseTransition(Duration.millis(CARET_PAUSE_DURATION_MS));
         this.caretPause.setOnFinished(e -> caretBlink.playFromStart());
+        this.caretVisibleListener = (obs, old, val) -> {
+            if (val) {
+                caretVisible = true;
+                cursorNode.setVisible(true);
+                caretBlink.playFromStart();
+            } else {
+                caretBlink.stop();
+                caretPause.stop();
+                caretVisible = false;
+                cursorNode.setVisible(false);
+            }
+            redraw();
+        };
+        control.caretVisibleProperty().addListener(caretVisibleListener);
         verticalScrollBar.setOrientation(Orientation.VERTICAL);
         horizontalScrollBar.setOrientation(Orientation.HORIZONTAL);
         verticalScrollBar.setManaged(false);
@@ -199,7 +205,9 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         registerDefaultKeyBindings();
 
         caretBlink.setCycleCount(Timeline.INDEFINITE);
-        caretBlink.play();
+        if (control.isCaretVisible()) {
+            caretBlink.play();
+        }
 
         this.layoutSizeListener = (obs, old, val) -> getSkinnable().requestLayout();
         control.widthProperty().addListener(layoutSizeListener);
@@ -250,7 +258,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         redraw();
     }
 
-    /** 重建闪烁时间线以应用新的闪烁周期，并重置为可见相位。 */
+    /** 重建闪烁时间线以应用新的闪烁周期，并重置为可见相位；光标被禁用时保持隐藏不启动。 */
     private void applyCaretBlinkRate(Duration interval) {
         caretBlink.stop();
         caretBlink.getKeyFrames().setAll(
@@ -260,6 +268,11 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
                 }),
                 new KeyFrame(interval)
         );
+        if (!getSkinnable().isCaretVisible()) {
+            caretVisible = false;
+            cursorNode.setVisible(false);
+            return;
+        }
         caretVisible = true;
         cursorNode.setVisible(true);
         caretBlink.playFromStart();
@@ -550,6 +563,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         drawDecorations(gc, ctx, editor);
         drawGutter(gc, ctx, editor);
         updateCursorPosition(editor, ctx);
+        drawExtraCarets(gc, ctx, editor);
         drawCompositionText(gc, ctx, editor);
 
         TreeMap<Integer, Integer> consumedPerAnchor = new TreeMap<>();
@@ -788,12 +802,17 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     }
 
     /**
-     * 更新光标矩形位置：越界即隐藏；有 IME 组合文本时右移；
+     * 更新光标矩形位置：光标被禁用或越界即隐藏；有 IME 组合文本时右移；
      * 停止闪烁并延迟 600ms 恢复，实现“移动时常亮”。
      */
     private void updateCursorPosition(JFXEditor editor, RenderContext ctx) {
         caretBlink.stop();
         caretPause.stop();
+        if (!editor.isCaretVisible()) {
+            caretVisible = false;
+            cursorNode.setVisible(false);
+            return;
+        }
         caretVisible = true;
         EditorCaret caret = editor.primaryCaret();
         double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(caret.line(), caret.column());
@@ -835,12 +854,18 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         }
     }
 
-    /** 绘制选区：跨行选区首尾行取实际列，中间行整行。 */
+    /** 绘制跨行选区：遍历全部光标，首尾行取实际列，中间行整行。 */
     private void drawSelectionsInRange(GraphicsContext gc, RenderContext ctx, JFXEditor editor, int startLine, int endLine) {
-        EditorCaret caret = editor.primaryCaret();
-        if (!caret.hasSelection()) return;
-
         if (editor.document().getLineCount() == 0) return;
+        for (EditorCaret caret : editor.allCarets()) {
+            drawCaretSelection(gc, ctx, editor, caret, startLine, endLine);
+        }
+    }
+
+    /** 绘制单个光标的选区背景；无选区时直接返回。 */
+    private void drawCaretSelection(GraphicsContext gc, RenderContext ctx, JFXEditor editor,
+                                    EditorCaret caret, int startLine, int endLine) {
+        if (!caret.hasSelection()) return;
 
         gc.setFill(editor.selectionColor());
         int selStart = Math.max(startLine, caret.selectionStartLine());
@@ -857,6 +882,27 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
             double x = gutterWidth() + measureWidthUpToCol(line, startCol) + inlineOffset - horizontalScrollBar.getValue();
             double width = measureWidthUpToCol(line, endCol) - measureWidthUpToCol(line, startCol);
             gc.fillRect(x, y, Math.max(width, 1), ctx.lineHeight());
+        }
+    }
+
+    /**
+     * 在画布上绘制全部额外光标（常亮矩形，不参与闪烁）；
+     * 光标被禁用或无额外光标时直接返回。
+     */
+    private void drawExtraCarets(GraphicsContext gc, RenderContext ctx, JFXEditor editor) {
+        if (!editor.isCaretVisible() || !editor.hasMultipleCarets()) return;
+
+        double lineH = editor.calculateLineHeight();
+        gc.setFill(editor.caretColor());
+        for (EditorCaret caret : editor.extraCarets()) {
+            double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(caret.line(), caret.column());
+            double x = gutterWidth() + measureWidthUpToCol(caret.line(), caret.column())
+                    + inlineOffset - horizontalScrollBar.getValue();
+            double y = ctx.getVisualLineY(caret.line());
+            if (x < gutterWidth() - 1 || x > canvas.getWidth() || y + lineH < 0 || y > canvas.getHeight()) {
+                continue;
+            }
+            gc.fillRect(x, y, editor.caretWidth(), lineH);
         }
     }
 
@@ -1114,6 +1160,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
                 KeyBinding.of(KeyCode.Z, "redo", KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN));
         presetAction("select-all", "全选", redrawing(this::selectAll),
                 KeyBinding.of(KeyCode.A, "select-all", KeyCombination.SHORTCUT_DOWN));
+        presetAction("clear-extra-carets", "清除额外光标", redrawing(editor::clearExtraCarets),
+                KeyBinding.of(KeyCode.ESCAPE, "clear-extra-carets"));
     }
 
     /** 把绑定注册为 default 级、挂接处理器并记录供 dispose 清理。 */
@@ -1160,15 +1208,17 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         return true;
     }
 
-    /** 全选：只设选区不动光标位置（遵循全选光标不动规范）。 */
+    /** 全选：先回到单光标，只设选区不动光标位置（遵循全选光标不动规范）。 */
     private boolean selectAll() {
         JFXEditor editor = getSkinnable();
         int lineCount = editor.document().getLineCount();
         if (lineCount == 0) {
             return false;
         }
-        return editor.primaryCaret().select(
+        boolean cleared = editor.clearExtraCarets();
+        boolean selected = editor.primaryCaret().select(
                 0, 0, lineCount - 1, editor.document().getLineLength(lineCount - 1));
+        return cleared || selected;
     }
 
     /**
@@ -1198,10 +1248,11 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
     /**
      * 单字符输入后应用缩进策略的行首调整：策略返回非 {@code null}
-     * 时整体替换该行行首空白，光标列随替换后的偏差同步。
+     * 时整体替换该行行首空白，光标列随替换后的偏差同步；
+     * 多光标状态下跳过（各光标行的缩进联动不可预测）。
      */
     private void applyIndentAdjustment(JFXEditor editor, String text) {
-        if (text.length() != 1) {
+        if (text.length() != 1 || editor.hasMultipleCarets()) {
             return;
         }
         int line = editor.primaryCaret().line();
@@ -1236,7 +1287,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
     /**
      * 鼠标按下：像素 y 换算视觉行再反解文档行，x 二分定位列；
-     * Shift+点击扩展选区，否则移动光标。
+     * Alt+点击切换额外光标，Shift+点击扩展选区，否则清除额外
+     * 光标并移动主光标。
      */
     private void handleMousePressed(MouseEvent event) {
         canvas.requestFocus();
@@ -1246,10 +1298,16 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         double textX = event.getX() - gutterWidth() + horizontalScrollBar.getValue();
         int col = getColFromX(line, textX);
         int[] clamped = clampPositionToDocumentBounds(line, col);
+        if (event.isAltDown()) {
+            getSkinnable().toggleCaretAt(clamped[0], clamped[1]);
+            redraw();
+            return;
+        }
         EditorCaret caret = getSkinnable().primaryCaret();
         if (event.isShiftDown()) {
             caret.selectTo(clamped[0], clamped[1]);
         } else {
+            getSkinnable().clearExtraCarets();
             caret.moveTo(clamped[0], clamped[1]);
         }
         getSkinnable().fireCaretChanged(caret.line(), caret.column());
@@ -1381,35 +1439,44 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         return d.hoverColor() != null || d.hoverListener() != null;
     }
 
-    /** 光标左移；ctrl 时按词移动，shift 时扩展选区。 */
+    /** 光标左移（作用于全部光标）；ctrl 时按词移动，shift 时扩展选区。 */
     private boolean moveLeft(boolean shift, boolean ctrl) {
-        EditorCaret c = getSkinnable().primaryCaret();
-        int newCol;
-        if (ctrl) {
-            newCol = findWordStartBackward(c.line(), c.column());
-        } else {
-            newCol = Math.max(0, c.column() - 1);
+        boolean changed = false;
+        for (EditorCaret c : getSkinnable().allCarets()) {
+            int newCol;
+            if (ctrl) {
+                newCol = findWordStartBackward(c.line(), c.column());
+            } else {
+                newCol = Math.max(0, c.column() - 1);
+            }
+            changed |= shift ? c.selectTo(c.line(), newCol) : c.moveTo(c.line(), newCol);
         }
-        boolean changed = shift ? c.selectTo(c.line(), newCol) : c.moveTo(c.line(), newCol);
-        if (changed) {
-            getSkinnable().fireCaretChanged(c.line(), c.column());
-        }
-        return changed;
+        return afterCaretMovement(changed);
     }
 
-    /** 光标右移；ctrl 时按词移动，shift 时扩展选区。 */
+    /** 光标右移（作用于全部光标）；ctrl 时按词移动，shift 时扩展选区。 */
     private boolean moveRight(boolean shift, boolean ctrl) {
-        EditorCaret c = getSkinnable().primaryCaret();
-        int maxCol = getSkinnable().document().getLineLength(c.line());
-        int newCol;
-        if (ctrl) {
-            newCol = findWordEndForward(c.line(), c.column());
-        } else {
-            newCol = Math.min(maxCol, c.column() + 1);
+        boolean changed = false;
+        for (EditorCaret c : getSkinnable().allCarets()) {
+            int maxCol = getSkinnable().document().getLineLength(c.line());
+            int newCol;
+            if (ctrl) {
+                newCol = findWordEndForward(c.line(), c.column());
+            } else {
+                newCol = Math.min(maxCol, c.column() + 1);
+            }
+            changed |= shift ? c.selectTo(c.line(), newCol) : c.moveTo(c.line(), newCol);
         }
-        boolean changed = shift ? c.selectTo(c.line(), newCol) : c.moveTo(c.line(), newCol);
+        return afterCaretMovement(changed);
+    }
+
+    /** 光标移动后的统一收尾：合并重合光标并广播主光标位置。 */
+    private boolean afterCaretMovement(boolean changed) {
+        JFXEditor editor = getSkinnable();
+        editor.dedupeCarets();
         if (changed) {
-            getSkinnable().fireCaretChanged(c.line(), c.column());
+            EditorCaret p = editor.primaryCaret();
+            editor.fireCaretChanged(p.line(), p.column());
         }
         return changed;
     }
@@ -1446,98 +1513,67 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         return Character.isLetterOrDigit(c) || c == '_';
     }
 
-    /** 光标上移：目标列取期望列与目标行长的较小者。 */
+    /** 光标上移（作用于全部光标）：目标列取期望列与目标行长的较小者。 */
     private boolean moveUp(boolean shift) {
-        EditorCaret c = getSkinnable().primaryCaret();
-        int newLine = Math.max(0, c.line() - 1);
-        int newCol = Math.min(c.preferredColumn(), getSkinnable().document().getLineLength(newLine));
-        boolean changed = shift ? c.selectTo(newLine, newCol) : c.moveTo(newLine, newCol);
-        if (changed) {
-            getSkinnable().fireCaretChanged(c.line(), c.column());
+        boolean changed = false;
+        for (EditorCaret c : getSkinnable().allCarets()) {
+            int newLine = Math.max(0, c.line() - 1);
+            int newCol = Math.min(c.preferredColumn(), getSkinnable().document().getLineLength(newLine));
+            changed |= shift ? c.selectTo(newLine, newCol) : c.moveTo(newLine, newCol);
         }
-        return changed;
+        return afterCaretMovement(changed);
     }
 
-    /** 光标下移：目标列取期望列与目标行长的较小者。 */
+    /** 光标下移（作用于全部光标）：目标列取期望列与目标行长的较小者。 */
     private boolean moveDown(boolean shift) {
-        EditorCaret c = getSkinnable().primaryCaret();
-        int newLine = Math.min(getSkinnable().document().getLineCount() - 1, c.line() + 1);
-        int newCol = Math.min(c.preferredColumn(), getSkinnable().document().getLineLength(newLine));
-        boolean changed = shift ? c.selectTo(newLine, newCol) : c.moveTo(newLine, newCol);
-        if (changed) {
-            getSkinnable().fireCaretChanged(c.line(), c.column());
+        boolean changed = false;
+        for (EditorCaret c : getSkinnable().allCarets()) {
+            int newLine = Math.min(getSkinnable().document().getLineCount() - 1, c.line() + 1);
+            int newCol = Math.min(c.preferredColumn(), getSkinnable().document().getLineLength(newLine));
+            changed |= shift ? c.selectTo(newLine, newCol) : c.moveTo(newLine, newCol);
         }
-        return changed;
+        return afterCaretMovement(changed);
     }
 
-    /** 移到行首（shift 时选择到行首）。 */
+    /** 移到行首（作用于全部光标；shift 时选择到行首）。 */
     private boolean moveHome(boolean shift) {
-        EditorCaret c = getSkinnable().primaryCaret();
-        boolean changed = shift ? c.selectTo(c.line(), 0) : c.moveTo(c.line(), 0);
-        if (changed) {
-            getSkinnable().fireCaretChanged(c.line(), c.column());
+        boolean changed = false;
+        for (EditorCaret c : getSkinnable().allCarets()) {
+            changed |= shift ? c.selectTo(c.line(), 0) : c.moveTo(c.line(), 0);
         }
-        return changed;
+        return afterCaretMovement(changed);
     }
 
-    /** 移到行尾（shift 时选择到行尾）。 */
+    /** 移到行尾（作用于全部光标；shift 时选择到行尾）。 */
     private boolean moveEnd(boolean shift) {
-        EditorCaret c = getSkinnable().primaryCaret();
-        int maxCol = getSkinnable().document().getLineLength(c.line());
-        boolean changed = shift ? c.selectTo(c.line(), maxCol) : c.moveTo(c.line(), maxCol);
-        if (changed) {
-            getSkinnable().fireCaretChanged(c.line(), c.column());
+        boolean changed = false;
+        for (EditorCaret c : getSkinnable().allCarets()) {
+            int maxCol = getSkinnable().document().getLineLength(c.line());
+            changed |= shift ? c.selectTo(c.line(), maxCol) : c.moveTo(c.line(), maxCol);
         }
-        return changed;
+        return afterCaretMovement(changed);
     }
 
-    /** 退格删除：有选区删选区；列 0 时合并到上一行尾部。 */
+    /** 退格删除：委托给控件的多光标感知实现。 */
     private boolean deleteBackward() {
-        JFXEditor editor = getSkinnable();
-        EditorCaret c = editor.primaryCaret();
-        if (c.hasSelection()) {
-            editor.deleteSelection();
-            return true;
-        } else if (c.column() > 0) {
-            editor.document().delete(TextRange.of(c.line(), c.column() - 1, c.line(), c.column()));
-            c.moveTo(c.line(), c.column() - 1);
-            editor.fireCaretChanged(c.line(), c.column());
-            return true;
-        } else if (c.line() > 0) {
-            int prevLineLen = editor.document().getLineLength(c.line() - 1);
-            TextRange result = editor.document().delete(
-                    TextRange.of(c.line() - 1, prevLineLen, c.line(), 0)
-            );
-            Position newPos = result.end();
-            c.moveTo(newPos.line(), newPos.column());
-            editor.fireCaretChanged(c.line(), c.column());
-            return true;
-        }
-        return false;
+        return getSkinnable().deleteBackward();
     }
 
-    /** 前向删除：有选区删选区；行尾时合并下一行。 */
+    /** 前向删除：委托给控件的多光标感知实现。 */
     private boolean deleteForward() {
-        JFXEditor editor = getSkinnable();
-        EditorCaret c = editor.primaryCaret();
-        if (c.hasSelection()) {
-            editor.deleteSelection();
-            return true;
-        } else if (c.column() < editor.document().getLineLength(c.line())) {
-            editor.document().delete(TextRange.of(c.line(), c.column(), c.line(), c.column() + 1));
-            editor.fireCaretChanged(c.line(), c.column());
-            return true;
-        } else if (c.line() < editor.document().getLineCount() - 1) {
-            editor.document().delete(TextRange.of(c.line(), c.column(), c.line() + 1, 0));
-            editor.fireCaretChanged(c.line(), c.column());
-            return true;
-        }
-        return false;
+        return getSkinnable().deleteForward();
     }
 
-    /** 在光标处插入换行，并按当前缩进策略追加新行起始缩进。 */
+    /**
+     * 在光标处插入换行，并按当前缩进策略追加新行起始缩进；
+     * 多光标状态下插入纯换行（不做缩进联动）。
+     */
     private boolean insertNewline() {
         JFXEditor editor = getSkinnable();
+        if (editor.hasMultipleCarets()) {
+            editor.insertText("\n");
+            return true;
+        }
         EditorCaret caret = editor.primaryCaret();
         String indent = editor.getIndentStrategy()
                 .computeIndent(editor.document(), caret.line(), caret.column());
@@ -1592,6 +1628,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
             control.fontProperty().removeListener(fontListener);
             control.gutterVisibleProperty().removeListener(gutterVisibleListener);
+            control.caretVisibleProperty().removeListener(caretVisibleListener);
             control.widthProperty().removeListener(layoutSizeListener);
             control.heightProperty().removeListener(layoutSizeListener);
             control.repaintsProperty().removeListener(refreshListener);

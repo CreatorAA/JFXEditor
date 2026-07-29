@@ -18,8 +18,7 @@ import java.util.Objects;
  * 两个 JFXEditor 通过标签上的 &lt;style&gt; 元素各自携带一整套内联
  * -editor-* 配置（Ocean / Sunset 配色），不依赖任何外部样式表。</p>
  *
- * <p>启动方式：{@code mvn javafx:run
- * "-Djavafx.mainClass=org.pigeonshouse.javafx.editor.demo.FxmlInlineStyleDemo"}</p>
+ * <p>启动方式：本工程根目录下 {@code mvn javafx:run}</p>
  */
 public class FxmlInlineStyleDemo extends Application {
 

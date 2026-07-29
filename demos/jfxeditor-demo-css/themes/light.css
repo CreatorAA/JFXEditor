@@ -1,0 +1,143 @@
+/*
+ * 亮色主题（Light）—— 基于 VS Code Light+ 配色。
+ * 作为场景级样式表加载，优先级高于 editor.css（UA 样式表）。
+ */
+
+/* ==================== 全局控件配色 ==================== */
+
+.root {
+    -fx-base: #ececec;
+    -fx-background: #f3f3f3;
+    -fx-control-inner-background: #ffffff;
+    -fx-accent: #0090f1;
+    -fx-focus-color: #0090f1;
+    -fx-faint-focus-color: #0090f122;
+    -fx-background-color: #f3f3f3;
+}
+
+.demo-toolbar {
+    -fx-background-color: #eaeaea;
+    -fx-border-color: transparent transparent #d0d0d0 transparent;
+    -fx-padding: 6 10 6 10;
+}
+
+.demo-status-bar {
+    -fx-background-color: #0090f1;
+    -fx-padding: 3 10 3 10;
+}
+
+.demo-status-bar .label {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 12px;
+}
+
+/* ==================== 编辑器主体 ==================== */
+
+.editor {
+    -editor-background: #ffffff;
+    -editor-text-color: #1f1f1f;
+    -editor-selection-color: rgba(173, 214, 255, 0.7);
+    -editor-current-line-color: #f0f6fc;
+    -editor-caret-color: #000000;
+    -editor-caret-width: 2;
+    -editor-caret-blink-rate: 530ms;
+    -editor-gutter-background: #f5f5f5;
+    -editor-gutter-text-color: #237893;
+    -editor-gutter-font-scale: 0.85;
+    -editor-gutter-width: 52;
+    -editor-after-text-color: #8a8a8a;
+    -editor-ghost-text-color: rgba(140, 140, 145, 0.7);
+    -editor-line-height-multiplier: 1.5;
+    -fx-font-family: "Consolas", "JetBrains Mono", "Cascadia Mono", monospace;
+
+    /* -------- 语法 token 配色 -------- */
+    -editor-token-text: #000000;
+    -editor-token-keyword: #0000ff;
+    -editor-token-keyword-style: "bold";
+    -editor-token-keyword-control: #af00db;
+    -editor-token-keyword-control-style: "bold";
+    -editor-token-keyword-declaration: #0000ff;
+    -editor-token-keyword-declaration-style: "bold";
+    -editor-token-keyword-modifier: #0000ff;
+    -editor-token-keyword-modifier-style: "bold";
+    -editor-token-comment: #008000;
+    -editor-token-comment-style: "italic";
+    -editor-token-comment-block: #008000;
+    -editor-token-comment-block-style: "italic";
+    -editor-token-comment-doc: #008000;
+    -editor-token-comment-doc-style: "italic";
+    -editor-token-string: #a31515;
+    -editor-token-string-escape: #ee0000;
+    -editor-token-number: #098658;
+    -editor-token-number-integer: #098658;
+    -editor-token-number-float: #098658;
+    -editor-token-number-hex: #098658;
+    -editor-token-operator: #000000;
+    -editor-token-punctuation: #000000;
+    -editor-token-delimiter: #6b6b6b;
+    -editor-token-type: #267f99;
+    -editor-token-interface: #267f99;
+    -editor-token-function: #795e26;
+    -editor-token-function-declaration: #795e26;
+    -editor-token-function-builtin: #795e26;
+    -editor-token-variable: #001080;
+    -editor-token-variable-builtin: #0000ff;
+    -editor-token-constant: #0070c1;
+    -editor-token-constant-builtin: #0000ff;
+    -editor-token-property: #001080;
+    -editor-token-parameter: #001080;
+    -editor-token-annotation: #808000;
+    -editor-token-label: #000000;
+    -editor-token-error: #cd3131;
+    -editor-token-error-style: "underline";
+    -editor-token-deprecated: #756f6f;
+    -editor-token-deprecated-style: "italic";
+    -editor-token-regex: #811f3f;
+}
+
+/* ==================== 状态伪类 ==================== */
+
+.editor:read-only {
+    -editor-background: #f7f7f7;
+    -editor-current-line-color: #f7f7f7;
+}
+
+.editor:focused {
+    -editor-caret-color: #005fb8;
+}
+
+.editor:disabled {
+    -fx-opacity: 0.55;
+}
+
+/* ==================== 滚动条 ==================== */
+
+.editor .scroll-bar:vertical,
+.editor .scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .track {
+    -fx-background-color: transparent;
+}
+
+.editor .scroll-bar .thumb {
+    -fx-background-color: #c1c1c1;
+    -fx-background-radius: 4px;
+}
+
+.editor .scroll-bar .thumb:hover {
+    -fx-background-color: #a8a8a8;
+}
+
+.editor .scroll-bar .increment-button,
+.editor .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.editor .scroll-bar .increment-arrow,
+.editor .scroll-bar .decrement-arrow {
+    -fx-background-color: #8f8f8f;
+}

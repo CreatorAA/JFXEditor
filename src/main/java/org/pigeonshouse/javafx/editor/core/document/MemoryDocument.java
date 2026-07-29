@@ -275,6 +275,18 @@ public class MemoryDocument implements ReplayableDocument {
         }
     }
 
+    /** {@inheritDoc} 委托 {@link UndoManager} 收集后续命令。 */
+    @Override
+    public void beginCompoundEdit() {
+        undoManager.beginCompound();
+    }
+
+    /** {@inheritDoc} 委托 {@link UndoManager} 聚合入栈。 */
+    @Override
+    public void endCompoundEdit() {
+        undoManager.endCompound();
+    }
+
     @Override
     public void addDocumentListener(DocumentListener listener) {
         listeners.add(Objects.requireNonNull(listener));

@@ -33,7 +33,7 @@ A native JavaFX code editor component rendered entirely on **Canvas**, highly ex
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.2-preview</version>
+    <version>1.3-preview</version>
 </dependency>
 ```
 
@@ -74,14 +74,25 @@ scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
 | `editor` | Editor control: Control/Skin, caret, decorations, key bindings, render layers, indent strategies |
 | `syntax` | Syntax highlighting: Tree-sitter & regex highlighters, async engine, themes |
 | `search` | Text search engine |
-| `demo` | Demo apps: CSS theme hot-reload, FXML inline styles |
 
-## 🖥️ Run the Demo
+## 🖥️ Run the Demos
+
+Demos live in [demos/](demos) as three standalone Maven projects (they depend on
+the jfxeditor artifact from Maven Central and are not packaged with this library):
+
+| Project | What it shows |
+| ------- | ------------- |
+| `demos/jfxeditor-demo-fxml` | FXML inline `-editor-*` styling (Ocean / Sunset dual editors) |
+| `demos/jfxeditor-demo-css` | Runtime switching of four themes + hot reload of CSS under `themes/` |
+| `demos/jfxeditor-demo-richtext` | Markup tags rendered live as inline widgets (images/tables/links/file index, etc.) |
 
 ```bash
-# CSS theme hot-reload demo (launch from project root to edit & hot-reload theme CSS live)
+# launch from any demo project directory, e.g.:
+cd demos/jfxeditor-demo-css
 mvn javafx:run
 ```
+
+> If the matching jfxeditor version is not in your local repository yet, run `mvn install` in the library root first.
 
 ## 📄 License
 

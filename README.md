@@ -33,7 +33,7 @@
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.2-preview</version>
+    <version>1.3-preview</version>
 </dependency>
 ```
 
@@ -74,14 +74,25 @@ scene.getStylesheets().setAll(EditorTheme.DARK.getStylesheet());
 | `editor` | 编辑器控件：Control/Skin、光标、装饰层、按键绑定、渲染层、缩进策略 |
 | `syntax` | 语法高亮：Tree-sitter 与正则高亮器、异步高亮引擎、主题 |
 | `search` | 文本搜索引擎 |
-| `demo` | 演示程序：CSS 主题热加载、FXML 内联样式 |
 
 ## 🖥️ 运行演示
 
+演示程序位于 [demos/](demos) 目录，是三个独立的 Maven 工程（依赖 Maven Central
+上的 jfxeditor 构件，不随本库打包发布）：
+
+| 工程 | 演示内容 |
+| ---- | ---- |
+| `demos/jfxeditor-demo-fxml` | FXML 内联 -editor-* 样式（Ocean / Sunset 双编辑器） |
+| `demos/jfxeditor-demo-css` | 四套主题运行时切换 + 编辑 themes/ 下 CSS 即时热加载 |
+| `demos/jfxeditor-demo-richtext` | 标记语法实时渲染为行间组件（图片/表格/链接/文件索引等） |
+
 ```bash
-# CSS 主题热加载演示（从项目根目录启动可实时编辑主题 CSS 并热加载）
+# 进入任意演示工程目录启动，例如：
+cd demos/jfxeditor-demo-css
 mvn javafx:run
 ```
+
+> 若本地仓库中没有对应版本的 jfxeditor 构件，先在库根目录执行 `mvn install`。
 
 ## 📄 开源协议
 

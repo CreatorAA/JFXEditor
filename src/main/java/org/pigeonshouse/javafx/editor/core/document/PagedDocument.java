@@ -10,11 +10,7 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -622,6 +618,18 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
             int startLine = (batchMinLine == Integer.MAX_VALUE) ? 0 : batchMinLine;
             fireDocumentFullChange(startLine, lineDelta);
         }
+    }
+
+    /** {@inheritDoc} 委托 {@link UndoManager} 收集后续命令。 */
+    @Override
+    public void beginCompoundEdit() {
+        undoManager.beginCompound();
+    }
+
+    /** {@inheritDoc} 委托 {@link UndoManager} 聚合入栈。 */
+    @Override
+    public void endCompoundEdit() {
+        undoManager.endCompound();
     }
 
     /** {@inheritDoc} */

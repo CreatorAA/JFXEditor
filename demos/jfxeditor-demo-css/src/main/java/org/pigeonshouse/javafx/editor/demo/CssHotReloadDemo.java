@@ -44,15 +44,14 @@ import java.util.function.Supplier;
  * 以场景级样式表形式在运行时切换，所有 -editor-* 属性（含全部语法 token 配色）
  * 随主题即时生效，且切换过程不触碰文档 / 光标 / 滚动等编辑器状态。</p>
  *
- * <p>热加载：若从项目根目录启动（IDE 或 mvn javafx:run），主题 CSS 直接读取
- * {@code src/main/resources/.../editor/themes} 下的源文件，并由 WatchService 监视——
+ * <p>热加载：从本工程根目录启动（IDE 或 mvn javafx:run）时，主题 CSS 直接读取
+ * {@code themes/} 下的文件，并由 WatchService 监视——
  * 运行期间编辑并保存当前主题的 CSS 文件，界面会自动重新加载生效。</p>
  */
 public class CssHotReloadDemo extends Application {
 
-    /** 内置主题 CSS 源文件目录（存在时启用文件监视热加载，否则回退到 classpath 资源）。 */
-    private static final Path THEME_SOURCE_DIR = Path.of(
-            "src", "main", "resources", "org", "pigeonshouse", "javafx", "editor", "editor", "themes");
+    /** 主题 CSS 源文件目录（存在时启用文件监视热加载，否则回退到 classpath 资源）。 */
+    private static final Path THEME_SOURCE_DIR = Path.of("themes");
 
     private record Theme(String displayName, EditorTheme editorTheme) {
         /** 主题 CSS 源文件名（取内置资源路径的最后一段）。 */
@@ -168,8 +167,7 @@ public class CssHotReloadDemo extends Application {
               3. 紫色主题     —— Shades of Purple 风格
               4. 高对比度主题 —— 纯黑底 + 高饱和前景色
 
-            小技巧：从项目根目录启动时，直接编辑并保存
-            src/main/resources/org/pigeonshouse/javafx/editor/editor/themes/ 下
+            小技巧：从本工程根目录启动时，直接编辑并保存 themes/ 下
             当前主题的 CSS 文件，界面会自动热加载，无需重启程序。
             """;
 
