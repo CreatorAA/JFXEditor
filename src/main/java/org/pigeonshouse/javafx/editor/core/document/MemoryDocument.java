@@ -108,6 +108,9 @@ public class MemoryDocument implements ReplayableDocument {
 
     @Override
     public int getLineLength(int lineIdx) {
+        if (getLineCount() == 0) {
+            return 0;
+        }
         checkLineIndex(lineIdx);
         return lineIndex.getLineLength(lineIdx, buffer.length());
     }

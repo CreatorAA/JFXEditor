@@ -185,7 +185,7 @@ public final class LineWidgetOverlay implements RenderLayer {
         for (Entry entry : entries.values()) {
             int anchor = entry.tag.line();
             int consumed = consumedByAnchor.getOrDefault(anchor, 0);
-            double y = ctx.getVisualLineY(anchor) + lh + consumed * lh + GAP;
+            double y = ctx.getLineBottomY(anchor) + consumed * lh + GAP;
             consumedByAnchor.put(anchor, consumed + entry.extraLines);
 
             double height = entry.node.prefHeight(-1);
@@ -203,23 +203,21 @@ public final class LineWidgetOverlay implements RenderLayer {
         }
     }
 
-    /** 背景色盖掉标记原文，改画一枚胶囊；点进该行即展开。 */
+    /** 背景色盖掉标记原文（按软换行段逐段覆盖），在起始段画一枚胶囊；点进该行即展开。 */
     private void collapseTagText(GraphicsContext gc, RenderContext ctx, MarkupTag tag) {
         double lh = ctx.lineHeight();
-        double y = ctx.getVisualLineY(tag.line());
-        if (y + lh < 0 || y > ctx.height()) {
-            return;
-        }
-        String lineText = ctx.document().getLine(tag.line());
+        int line = tag.line();
+        String lineText = ctx.document().getLine(line);
         if (lineText == null || tag.endCol() > lineText.length()
                 || !lineText.startsWith(tag.raw(), tag.startCol())) {
             return;
         }
 
-        double prefixWidth = measureWidth(ctx, lineText.substring(0, tag.startCol()));
-        double tagWidth = measureWidth(ctx, tag.raw());
-        double tagX = ctx.gutterWidth() + prefixWidth - ctx.scrollX();
-        if (tagX + tagWidth < ctx.gutterWidth() || tagX > ctx.width()) {
+        int startSeg = ctx.segmentIndexAt(line, tag.startCol());
+        int endSeg = ctx.segmentIndexAt(line, Math.max(tag.startCol(), tag.endCol() - 1));
+        double topY = ctx.getSegmentY(line, startSeg);
+        double bottomY = ctx.getSegmentY(line, endSeg) + lh;
+        if (bottomY < 0 || topY > ctx.height()) {
             return;
         }
 
@@ -230,7 +228,24 @@ public final class LineWidgetOverlay implements RenderLayer {
 
         Color background = editor.backgroundColorProperty().get();
         gc.setFill(background != null ? background : FALLBACK_BACKGROUND);
-        gc.fillRect(tagX, y, tagWidth, lh);
+        for (int seg = startSeg; seg <= endSeg; seg++) {
+            int segStartCol = ctx.segmentStartColumn(line, seg);
+            int segEndCol = ctx.segmentEndColumn(line, seg);
+            int coverStart = Math.max(tag.startCol(), segStartCol);
+            int coverEnd = Math.min(tag.endCol(), segEndCol);
+            if (coverEnd <= coverStart) {
+                continue;
+            }
+            double x1 = ctx.gutterWidth() + measureWidth(ctx, lineText.substring(segStartCol, coverStart)) - ctx.scrollX();
+            double x2 = ctx.gutterWidth() + measureWidth(ctx, lineText.substring(segStartCol, coverEnd)) - ctx.scrollX();
+            gc.fillRect(x1, ctx.getSegmentY(line, seg), x2 - x1, lh);
+        }
+
+        // 胶囊画在标记起始段的起点，宽度不超过首段内的标记宽
+        int startSegCol = ctx.segmentStartColumn(line, startSeg);
+        int firstCoverEnd = Math.min(tag.endCol(), ctx.segmentEndColumn(line, startSeg));
+        double tagX = ctx.gutterWidth() + measureWidth(ctx, lineText.substring(startSegCol, tag.startCol())) - ctx.scrollX();
+        double firstSegTagWidth = measureWidth(ctx, lineText.substring(tag.startCol(), firstCoverEnd));
 
         Font pillFont = Font.font(editor.font().getFamily(), editor.font().getSize() * 0.85);
         String pillLabel = "\u25c6 " + tag.name();
@@ -242,12 +257,13 @@ public final class LineWidgetOverlay implements RenderLayer {
         probe.setFont(savedFont);
 
         double pillHeight = Math.max(10, lh - 6);
-        double pillWidth = Math.min(tagWidth, labelWidth + 16);
+        double pillWidth = Math.min(firstSegTagWidth, labelWidth + 16);
+        double pillY = ctx.getSegmentY(line, startSeg);
         gc.setFill(PILL_BACKGROUND);
-        gc.fillRoundRect(tagX, y + (lh - pillHeight) / 2, pillWidth, pillHeight, pillHeight, pillHeight);
+        gc.fillRoundRect(tagX, pillY + (lh - pillHeight) / 2, pillWidth, pillHeight, pillHeight, pillHeight);
         gc.setFill(PILL_TEXT);
         gc.setFont(pillFont);
-        gc.fillText(pillLabel, tagX + 8, y + lh * 0.72);
+        gc.fillText(pillLabel, tagX + 8, pillY + lh * 0.72);
         gc.restore();
     }
 

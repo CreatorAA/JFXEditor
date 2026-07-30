@@ -91,42 +91,45 @@ public class GhostTextRenderLayer implements RenderLayer {
     /**
      * {@inheritDoc}
      *
-     * <p>首行 x = gutter + 锚列前缀实测宽（锚列钳到行长）− scrollX，
-     * 续行从 gutter 左缘起；每行做视口裁剪，基线与 Skin 一致
-     * （0.8 × 行高）。</p>
+     * <p>首行内联在光标列所在的软换行段（x = gutter + 段内前缀实测宽 − scrollX），
+     * 续行落到整行末段下方由行插入腾出的空间（从 gutter 左缘起）；每行做视口
+     * 裁剪，基线与 Skin 一致（0.8 × 行高）。关闭软换行时退化为按文档行逐行下推。</p>
      */
     @Override
     public void render(GraphicsContext gc, RenderContext ctx) {
         if (!hasGhostText()) {
             return;
         }
-
+    
         List<String> lines = getTextLinesInternal();
         Color explicit = color;
         Color contextColor = ctx.ghostTextColor();
         gc.setFill(explicit != null ? explicit
                 : contextColor != null ? contextColor : RenderContext.DEFAULT_GHOST_TEXT_COLOR);
-
+    
         double gutterWidth = ctx.gutterWidth();
-        double anchorY = ctx.getVisualLineY(anchorLine);
-
+        String anchorText = ctx.document().getLine(anchorLine);
+        int col = (anchorText != null) ? Math.min(anchorColumn, anchorText.length()) : 0;
+        int seg = ctx.segmentIndexAt(anchorLine, col);
+        int segStartCol = ctx.segmentStartColumn(anchorLine, seg);
+        double firstY = ctx.getSegmentY(anchorLine, seg);
+        double bottomY = ctx.getLineBottomY(anchorLine);
+    
         for (int i = 0; i < lines.size(); i++) {
-            double y = anchorY + i * ctx.lineHeight();
-
+            double y = (i == 0) ? firstY : bottomY + (i - 1) * ctx.lineHeight();
+    
             if (y + ctx.lineHeight() < 0 || y > ctx.height()) {
                 continue;
             }
-
+    
             double x;
             if (i == 0) {
-                String lineContent = ctx.document().getLine(anchorLine);
-                int col = (lineContent != null) ? Math.min(anchorColumn, lineContent.length()) : 0;
-                double prefixWidth = measureWidth(ctx, lineContent != null ? lineContent.substring(0, col) : "");
-                x = gutterWidth + prefixWidth - ctx.scrollX();
+                String prefix = (anchorText != null) ? anchorText.substring(segStartCol, col) : "";
+                x = gutterWidth + measureWidth(ctx, prefix) - ctx.scrollX();
             } else {
                 x = gutterWidth - ctx.scrollX();
             }
-
+    
             gc.fillText(lines.get(i), x, y + ctx.lineHeight() * 0.8);
         }
     }

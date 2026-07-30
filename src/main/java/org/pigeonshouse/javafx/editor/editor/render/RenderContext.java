@@ -21,6 +21,15 @@ import org.pigeonshouse.javafx.editor.syntax.HighlightEngine;
  * 应用线程使用；{@code visualLineBaseOffset} 供多层同锚叠放时叠加
  * 额外视觉行基准。</p>
  *
+ * <p><strong>软换行（给 {@link RenderLayer} 作者）：</strong>开启软换行后一个
+ * 文档行会被折成若干「段」，每段占一个视觉行。要把内容对位到某文档行时
+ * <strong>不要</strong>假设它只占一行：用 {@link #segmentCount(int)} 取段数、
+ * {@link #getSegmentY(int, int)} 取某段行顶、{@link #getColumnY(int, int)} 取
+ * 某列所在段的行顶；要在整行<em>下方</em>放置 view zone（配合
+ * {@link RenderOffset#lineInsertion}）时用 {@link #getLineBottomY(int)} 取末段底部。
+ * 某列的 x 需相对其所在段起始列实测（见 {@link #segmentStartColumn(int, int)}），
+ * 因为每段都从左缘重新起绘。关闭软换行时以上 API 均退化为每行一段，与旧行为一致。</p>
+ *
  * @param document             文档模型
  * @param highlightEngine      高亮引擎，可能为 {@code null}
  * @param helperText           共享文本测量节点（仅 FX 线程）
@@ -124,25 +133,84 @@ public record RenderContext(
     }
 
     /**
-     * 计算文档行顶部的 y 像素坐标：
-     * {@code (视觉行 + 基准偏移 - scrollY) * 行高}。
+     * 计算文档行首段顶部的 y 像素坐标：
+     * {@code (首段视觉行 + 基准偏移 - scrollY) * 行高}。
      *
      * @param documentLine 文档行号
-     * @return 该行顶部的 y 像素坐标（可为负，表示在视口上方）
+     * @return 该行首段顶部的 y 像素坐标（可为负，表示在视口上方）
      */
     public double getVisualLineY(int documentLine) {
         return (lineOffsetMap.getVisualLine(documentLine) + visualLineBaseOffset - scrollY) * lineHeight;
     }
 
     /**
-     * 按视觉行区间 {@code [scrollY, scrollY + height/lineHeight]}
-     * 判断文档行是否可见。
+     * 计算文档行指定<strong>软换行段</strong>顶部的 y 像素坐标：
+     * {@code (首段视觉行 + 段号 + 基准偏移 - scrollY) * 行高}。
      *
      * @param documentLine 文档行号
-     * @return 对应视觉行落在可见区间内时返回 {@code true}
+     * @param segment      段号（0 起；无软换行时恒 0，等价于 {@link #getVisualLineY(int)}）
+     * @return 该段顶部的 y 像素坐标
+     */
+    public double getSegmentY(int documentLine, int segment) {
+        return (lineOffsetMap.getVisualLine(documentLine) + segment + visualLineBaseOffset - scrollY) * lineHeight;
+    }
+
+    /**
+     * 计算某列所在<strong>软换行段</strong>顶部的 y 像素坐标（content widget
+     * 对位到某列时使用）。
+     *
+     * @param documentLine 文档行号
+     * @param column       列号
+     * @return 该列所在段顶部的 y 像素坐标
+     */
+    public double getColumnY(int documentLine, int column) {
+        return getSegmentY(documentLine, lineOffsetMap.segmentIndexAt(documentLine, column));
+    }
+
+    /**
+     * 计算文档行<strong>末段底部</strong>的 y 像素坐标，即紧邻其后由
+     * {@link RenderOffset#lineInsertion} 腾出的空间起点（view zone 对位）。
+     *
+     * @param documentLine 文档行号
+     * @return 该行末段底部的 y 像素坐标
+     */
+    public double getLineBottomY(int documentLine) {
+        return getSegmentY(documentLine, segmentCount(documentLine) - 1) + lineHeight;
+    }
+
+    /** @return 文档行的软换行段数（无软换行时恒 1） */
+    public int segmentCount(int documentLine) {
+        return lineOffsetMap.segmentCount(documentLine);
+    }
+
+    /** @return 列所在的段号（无软换行时恒 0） */
+    public int segmentIndexAt(int documentLine, int column) {
+        return lineOffsetMap.segmentIndexAt(documentLine, column);
+    }
+
+    /** @return 段的起始列（无软换行时恒 0） */
+    public int segmentStartColumn(int documentLine, int segment) {
+        return lineOffsetMap.segmentStartColumn(documentLine, segment);
+    }
+
+    /** @return 段的结束列（末段到行尾；无软换行时为行长） */
+    public int segmentEndColumn(int documentLine, int segment) {
+        return lineOffsetMap.segmentEndColumn(documentLine, segment);
+    }
+
+    /**
+     * 按视觉行区间 {@code [scrollY, scrollY + height/lineHeight]}
+     * 判断文档行是否可见——软换行下只要该行<strong>任一段</strong>落在
+     * 可见区间内即返回 {@code true}。
+     *
+     * @param documentLine 文档行号
+     * @return 对应任一视觉行落在可见区间内时返回 {@code true}
      */
     public boolean isVisualLineVisible(int documentLine) {
-        int visualLine = lineOffsetMap.getVisualLine(documentLine);
-        return visualLine >= (int) scrollY && visualLine <= (int) (scrollY + height / lineHeight);
+        int first = lineOffsetMap.getVisualLine(documentLine);
+        int last = first + lineOffsetMap.segmentCount(documentLine) - 1;
+        int top = (int) scrollY;
+        int bottom = (int) (scrollY + height / lineHeight);
+        return last >= top && first <= bottom;
     }
 }

@@ -33,7 +33,7 @@
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.4-preview</version>
+    <version>1.5-preview</version>
 </dependency>
 ```
 

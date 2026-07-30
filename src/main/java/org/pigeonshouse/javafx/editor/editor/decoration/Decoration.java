@@ -362,28 +362,4 @@ public final class Decoration implements Comparable<Decoration> {
         return new Decoration(DecorationType.GUTTER_ICON, line, line, 0, 0,
                 color, null, null, 0, null, symbol);
     }
-
-    /**
-     * 创建行内嵌入节点装饰（预留类型，当前 Skin 未实现绘制）。
-     *
-     * @param line 目标行
-     * @param node 嵌入节点（存入 {@code userData}）
-     * @return 新装饰
-     */
-    public static Decoration inlineNode(int line, Object node) {
-        return new Decoration(DecorationType.INLINE_NODE, line, line, 0, 0,
-                null, null, null, 0, null, node);
-    }
-
-    /**
-     * 创建 gutter 嵌入节点装饰（预留类型，当前 Skin 未实现绘制）。
-     *
-     * @param line 目标行
-     * @param node 嵌入节点（存入 {@code userData}）
-     * @return 新装饰
-     */
-    public static Decoration gutterNode(int line, Object node) {
-        return new Decoration(DecorationType.GUTTER_NODE, line, line, 0, 0,
-                null, null, null, 0, null, node);
-    }
 }

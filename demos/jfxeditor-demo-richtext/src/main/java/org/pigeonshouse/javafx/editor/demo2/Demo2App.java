@@ -8,6 +8,8 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.stage.Stage;
 import org.pigeonshouse.javafx.editor.editor.EditorTheme;
 import org.pigeonshouse.javafx.editor.editor.JFXEditor;
@@ -81,6 +83,13 @@ public class Demo2App extends Application {
 
         Scene scene = new Scene(root, 1200, 820);
         scene.getStylesheets().setAll(EditorTheme.DEFAULT.getStylesheet());
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.isAltDown() && e.getCode() == KeyCode.M) {
+                editor.setWrapText(!editor.isWrapText());
+                refreshStatus();
+                e.consume();
+            }
+        });
         primaryStage.setTitle("JFXEditor Demo2 — 标记实时渲染为活组件");
         primaryStage.setScene(scene);
         primaryStage.show();
@@ -117,7 +126,8 @@ public class Demo2App extends Application {
     private void refreshStatus() {
         if (statusLabel != null) {
             statusLabel.setText("已渲染组件：" + overlay.widgetCount()
-                    + "  |  文档行数：" + editor.document().getLineCount());
+                    + "  |  文档行数：" + editor.document().getLineCount()
+                    + "  |  软换行(Alt+M)：" + (editor.isWrapText() ? "开" : "关"));
         }
     }
 

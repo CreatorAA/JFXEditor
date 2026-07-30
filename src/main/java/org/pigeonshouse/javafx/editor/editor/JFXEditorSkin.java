@@ -19,6 +19,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
 import org.pigeonshouse.javafx.editor.core.document.Document;
+import org.pigeonshouse.javafx.editor.core.document.DocumentListener;
 import org.pigeonshouse.javafx.editor.core.model.Position;
 import org.pigeonshouse.javafx.editor.core.model.TextRange;
 import org.pigeonshouse.javafx.editor.editor.caret.EditorCaret;
@@ -32,6 +33,7 @@ import org.pigeonshouse.javafx.editor.editor.render.LineOffsetMap;
 import org.pigeonshouse.javafx.editor.editor.render.RenderContext;
 import org.pigeonshouse.javafx.editor.editor.render.RenderLayer;
 import org.pigeonshouse.javafx.editor.editor.render.RenderOffset;
+import org.pigeonshouse.javafx.editor.editor.wrap.WrapModel;
 import org.pigeonshouse.javafx.editor.syntax.HighlightStyle;
 import org.pigeonshouse.javafx.editor.syntax.Token;
 
@@ -50,7 +52,8 @@ import java.util.function.BooleanSupplier;
  *   <li>垂直 ScrollBar 的 value/max/visibleAmount 单位是
  *       <strong>视觉行号</strong>（非像素，混用会导致滚动错乱）；
  *       水平 ScrollBar 单位是像素；</li>
- *   <li>视觉行 = 文档行 + 之前锚点插入的额外行（见 {@link LineOffsetMap}）；</li>
+ *   <li>视觉行 = 文档行按软换行展开的段 + 之前锚点插入的额外行（见 {@link LineOffsetMap}
+ *       与 {@link WrapModel}；关闭软换行时退化为每行一段）；</li>
  *   <li>行顶 y = (视觉行 + 基准偏移 − scrollY) × 行高，文本基线在
  *       y + 0.8 × 行高；</li>
  *   <li>文本宽度一律经 {@code helperText} 实测，点击定位用纯二分查找。</li>
@@ -102,6 +105,21 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     private final InvalidationListener gutterFontScaleListener;
     private final ChangeListener<Boolean> canvasFocusListener;
 
+    /** 软换行布局模型（持久持有，随文档/字体/宽度/策略变化增量或重建）。 */
+    private final WrapModel wrapModel;
+    private final DocumentListener wrapDocListener;
+    private final ChangeListener<Boolean> wrapTextListener;
+    private final ChangeListener<org.pigeonshouse.javafx.editor.editor.wrap.LineWrapStrategy> wrapStrategyListener;
+
+    /** 软换行垂直移动的段内期望偏移及其落点锚（连续上下移动保持列位）；-1 表示重取。 */
+    private int wrapNavLine = -1;
+    private int wrapNavCol = -1;
+    private int wrapNavOffset = -1;
+    /** 主光标点击折行段行尾空白后为真，使边界列显示在上一视觉行行尾。 */
+    private boolean caretUpperAffinity = false;
+    /** 每帧行偏移表缓存；{@code null} 表示需重建（见 {@link #invalidateOffsetMap()}）。 */
+    private LineOffsetMap cachedOffsetMap;
+
     /** 返回当前生效的 gutter 宽度（像素）；隐藏时为 0。 */
     private int gutterWidth() {
         JFXEditor editor = getSkinnable();
@@ -143,6 +161,14 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         this.canvas = new Canvas();
         this.canvas.setCursor(Cursor.TEXT);
         this.helperText.setFont(control.font());
+
+        this.wrapModel = new WrapModel(control.document());
+        this.wrapDocListener = change -> {
+            boolean coarse = change.oldText().isEmpty() && change.newText().isEmpty();
+            wrapModel.onDocumentChanged(change.startLine(), change.lineDelta(), coarse);
+            invalidateOffsetMap();
+        };
+        control.document().addDocumentListener(wrapDocListener);
 
         this.fontListener = (obs, old, val) -> {
             smallFont = Font.font(val.getFamily(), val.getSize() * control.gutterFontScale());
@@ -260,6 +286,20 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         this.canvasFocusListener = (obs, old, focused) -> control.updateFocusFromSkin(focused);
         canvas.focusedProperty().addListener(canvasFocusListener);
 
+        this.wrapTextListener = (obs, old, val) -> {
+            refreshWrapConfig();
+            updateScrollBarBounds();
+            scrollToCursor();
+            redraw();
+        };
+        control.wrapTextProperty().addListener(wrapTextListener);
+        this.wrapStrategyListener = (obs, old, val) -> {
+            refreshWrapConfig();
+            updateScrollBarBounds();
+            redraw();
+        };
+        control.lineWrapStrategyProperty().addListener(wrapStrategyListener);
+
         redraw();
     }
 
@@ -312,11 +352,14 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
             public Point2D getTextLocation(int offset) {
                 JFXEditor editor = getSkinnable();
                 EditorCaret caret = editor.primaryCaret();
-                LineOffsetMap offsetMap = buildOffsetMap();
+                refreshWrapConfig();
+                LineOffsetMap offsetMap = offsetMap();
+                int seg = wrapModel.segmentOf(caret.line(), caret.column());
+                int segStart = wrapModel.segmentStart(caret.line(), seg);
                 double inlineOffset = offsetMap.getInlineOffsetAt(caret.line(), caret.column());
-                double x = gutterWidth() + measureWidthUpToCol(caret.line(), caret.column())
+                double x = gutterWidth() + measureSegmentWidth(caret.line(), segStart, caret.column())
                         + inlineOffset - horizontalScrollBar.getValue();
-                double visualLine = offsetMap.getVisualLine(caret.line());
+                double visualLine = offsetMap.getVisualLine(caret.line(), caret.column());
                 double y = (visualLine - verticalScrollBar.getValue()) * editor.calculateLineHeight()
                         + editor.calculateLineHeight();
                 Point2D screen = canvas.localToScreen(x, y);
@@ -436,16 +479,31 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         updateScrollBarBounds(canvas.getWidth(), canvas.getHeight());
     }
 
-    /** @return 总视觉行数 = 文档行 + 渲染层声明的额外行 */
+    /** @return 总视觉行数 = 软换行展开后的行数 + 渲染层声明的额外行 */
     private int totalVisualLines() {
-        return getSkinnable().document().getLineCount() + buildOffsetMap().totalExtraLines();
+        return offsetMap().getTotalVisualLineCount(getSkinnable().document().getLineCount());
     }
 
-    /** @return 内容最大像素宽度：最长行行号由文档缓存直供，只实测这一行 */
+    /** @return 内容最大像素宽度；软换行开启时恒 0（无需横向滚动），否则只实测最长行 */
     private double maxContentWidth() {
+        if (getSkinnable().isWrapText()) {
+            return 0;
+        }
         Document doc = getSkinnable().document();
         int line = doc.getMaxLineLengthLine();
         return line < 0 ? 0 : measureWidth(doc.getLine(line));
+    }
+
+    /** 以当前画布宽度同步软换行模型配置（开关/策略/字体/折行宽度）。 */
+    private void refreshWrapConfig() {
+        refreshWrapConfig(canvas.getWidth());
+    }
+
+    /** 同步软换行模型配置；折行宽度 = 画布宽 − gutter 宽（时接近零时退化为不折行）。 */
+    private void refreshWrapConfig(double canvasW) {
+        JFXEditor e = getSkinnable();
+        wrapModel.configure(e.isWrapText(), e.getLineWrapStrategy(), e.font(),
+                Math.max(0, canvasW - gutterWidth()));
     }
 
     /**
@@ -457,6 +515,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     private void updateScrollBarBounds(double canvasW, double canvasH) {
         if (canvasW <= 0 || canvasH <= 0) return;
         JFXEditor editor = getSkinnable();
+        refreshWrapConfig(canvasW);
+        invalidateOffsetMap();
 
         double lineH = editor.calculateLineHeight();
         double visibleLines = Math.max(1, canvasH / lineH);
@@ -522,6 +582,19 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         return layers;
     }
 
+    /** 返回本帧行偏移表，缺失时构建并缓存——避免一次交互内重复聚合各层偏移（含组件测量）。 */
+    private LineOffsetMap offsetMap() {
+        if (cachedOffsetMap == null) {
+            cachedOffsetMap = buildOffsetMap();
+        }
+        return cachedOffsetMap;
+    }
+
+    /** 使行偏移表缓存失效（偏移可能变化时调用：重绘/滚动条刷新/文档变更）。 */
+    private void invalidateOffsetMap() {
+        cachedOffsetMap = null;
+    }
+
     /**
      * 汇总所有渲染层的偏移声明构建行偏移表。
      *
@@ -530,6 +603,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
      */
     private LineOffsetMap buildOffsetMap() {
         LineOffsetMap map = new LineOffsetMap();
+        map.setWrapModel(wrapModel);
         for (RenderLayer layer : sortedLayers()) {
             for (RenderOffset offset : layer.getRenderOffsets(null)) {
                 map.add(offset);
@@ -546,6 +620,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
      */
     private void performFullRedraw(GraphicsContext gc, double w, double h, JFXEditor editor) {
         gc.clearRect(0, 0, w, h);
+        refreshWrapConfig(w);
+        invalidateOffsetMap();
 
         double lineH = editor.calculateLineHeight();
         Font font = editor.font();
@@ -556,7 +632,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         gc.setFill(editor.textColor());
         gc.setStroke(editor.textColor());
 
-        LineOffsetMap offsetMap = buildOffsetMap();
+        LineOffsetMap offsetMap = offsetMap();
         int firstVisual = (int) verticalScrollBar.getValue();
         int lastVisual = (int) (verticalScrollBar.getValue() + h / lineH);
         int firstLine = Math.max(0, offsetMap.getDocumentLine(firstVisual));
@@ -629,38 +705,85 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         return measureWidth(editor.document().getLineSegment(line, 0, safeCol));
     }
 
-    /**
-     * 像素 x 坐标反解为列号：纯二分查找（基于真实文本测量），
-     * 最后归到距离较近的一侧边界。
-     */
-    private int getColFromX(int line, double x) {
+    /** 实测某行 {@code [fromCol, toCol)} 段的像素宽度（列会钳到行长）。 */
+    private double measureSegmentWidth(int line, int fromCol, int toCol) {
         JFXEditor editor = getSkinnable();
         if (line < 0 || line >= editor.document().getLineCount()) return 0;
         int lineLen = editor.document().getLineLength(line);
-        if (lineLen == 0 || x <= 0) return 0;
+        int a = Math.max(0, Math.min(fromCol, lineLen));
+        int b = Math.max(a, Math.min(toCol, lineLen));
+        if (b <= a) return 0;
+        return measureWidth(editor.document().getLineSegment(line, a, b));
+    }
 
-        double fullWidth = measureWidthUpToCol(line, lineLen);
-        if (x >= fullWidth) return lineLen;
+    /**
+     * 计算 {@code (line, col)} 处的绘制 x：gutter + 所在段起点到该列的实测宽
+     * + 行内推移 − 水平滚动（无软换行时段起点恒 0，等价于从行首实测）。
+     */
+    private double columnX(RenderContext ctx, int line, int col) {
+        return columnX(ctx, line, col, wrapModel.segmentOf(line, col));
+    }
 
-        int low = 0;
-        int high = lineLen;
+    /** 指定段号计算列的绘制 x（供主光标上段亲和定位）。 */
+    private double columnX(RenderContext ctx, int line, int col, int seg) {
+        int segStart = wrapModel.segmentStart(line, seg);
+        double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, col);
+        return gutterWidth() + measureSegmentWidth(line, segStart, col) + inlineOffset - horizontalScrollBar.getValue();
+    }
+
+    /** 计算 {@code (line, col)} 所在段的行顶 y。 */
+    private double columnTopY(RenderContext ctx, int line, int col) {
+        return ctx.getSegmentY(line, wrapModel.segmentOf(line, col));
+    }
+
+    /** 指定段号计算行顶 y（供主光标上段亲和定位）。 */
+    private double columnTopY(RenderContext ctx, int line, int col, int seg) {
+        return ctx.getSegmentY(line, seg);
+    }
+
+    /** 主光标所在段：点击折行段行尾空白留下的「上段亲和」使边界列显示在上一段行尾。 */
+    private int caretSegment(int line, int col) {
+        int seg = wrapModel.segmentOf(line, col);
+        if (caretUpperAffinity && seg > 0 && wrapModel.segmentStart(line, seg) == col) {
+            return seg - 1;
+        }
+        return seg;
+    }
+
+    /** 点击落在折行段行尾空白（列恰为该段末界且非末段）时记「上段亲和」，让光标停在本视觉行行尾。 */
+    private void updateCaretAffinity(int line, int col, int seg) {
+        caretUpperAffinity = seg < wrapModel.segmentCount(line) - 1
+                && col == wrapModel.segmentEndCol(line, seg);
+    }
+
+    /** 视觉行像素 x → 列：先按段定位再段内二分。 */
+    private int columnAtX(int line, int seg, double x) {
+        int segStart = wrapModel.segmentStart(line, seg);
+        int segEnd = wrapModel.segmentEndCol(line, seg);
+        return getColFromXInSegment(line, segStart, segEnd, x);
+    }
+
+    /** 段内像素 x 反解列号：二分查找限定在 {@code [segStart, segEnd]}，x 相对段起点。 */
+    private int getColFromXInSegment(int line, int segStart, int segEnd, double x) {
+        JFXEditor editor = getSkinnable();
+        if (line < 0 || line >= editor.document().getLineCount()) return segStart;
+        if (segEnd <= segStart || x <= 0) return segStart;
+        double fullWidth = measureSegmentWidth(line, segStart, segEnd);
+        if (x >= fullWidth) return segEnd;
+        int low = segStart;
+        int high = segEnd;
         while (high - low > 1) {
             int mid = (low + high) >>> 1;
-            double midX = measureWidthUpToCol(line, mid);
+            double midX = measureSegmentWidth(line, segStart, mid);
             if (midX <= x) {
                 low = mid;
             } else {
                 high = mid;
             }
         }
-
-        double lowX = measureWidthUpToCol(line, low);
-        double highX = measureWidthUpToCol(line, high);
-        if (x - lowX < highX - x) {
-            return low;
-        } else {
-            return high;
-        }
+        double lowX = measureSegmentWidth(line, segStart, low);
+        double highX = measureSegmentWidth(line, segStart, high);
+        return (x - lowX < highX - x) ? low : high;
     }
 
     /** 超长行专用：按 200 字符分段累计宽度定位目标像素偏移对应的列。 */
@@ -728,76 +851,101 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         drawDecorationsInRange(gc, ctx, editor, ctx.firstVisibleLine(), ctx.lastVisibleLine());
     }
 
+    /** 段内区间绘制回调：{@code seg} 段号，{@code y} 段行顶，{@code [x1,x2]} 像素横区间。 */
+    private interface SegmentSpanConsumer {
+        void accept(int seg, double y, double x1, double x2);
+    }
+
+    /**
+     * 遍历文档行上与列区间 {@code [startCol, endCol]} 相交的每个软换行段，
+     * 换算出该段内的横向像素区间与行顶 y 后回调（供高亮/下划线/删除线共用）。
+     */
+    private void forEachDecorationSpan(RenderContext ctx, int line, int startCol, int endCol, SegmentSpanConsumer consumer) {
+        if (endCol < startCol) return;
+        int segCount = wrapModel.segmentCount(line);
+        for (int s = 0; s < segCount; s++) {
+            int segStart = wrapModel.segmentStart(line, s);
+            int segEnd = wrapModel.segmentEndCol(line, s);
+            if (endCol < segStart || startCol > segEnd) continue;
+            int a = Math.max(startCol, segStart);
+            int b = Math.min(endCol, segEnd);
+            if (b < a) continue;
+            double y = ctx.getSegmentY(line, s);
+            double x1 = gutterWidth() + measureSegmentWidth(line, segStart, a)
+                    + ctx.lineOffsetMap().getInlineOffsetAt(line, a) - horizontalScrollBar.getValue();
+            double x2 = gutterWidth() + measureSegmentWidth(line, segStart, b)
+                    + ctx.lineOffsetMap().getInlineOffsetAt(line, b) - horizontalScrollBar.getValue();
+            consumer.accept(s, y, x1, x2);
+        }
+    }
+
     /**
      * 按类型绘制单个装饰：整行背景、列区间高亮、下划线（直线/波浪/
      * 虚线）、删除线（行高 50%）、行尾附注（缩小字体）；被悬停时
-     * 用 hoverColor 替代本色。
+     * 用 hoverColor 替代本色。软换行下按段拆绘，行尾附注落在末段。
      */
     private void drawSingleDecoration(GraphicsContext gc, RenderContext ctx, JFXEditor editor, Decoration d) {
-        if (d.line() < 0 || d.line() >= editor.document().getLineCount()) {
+        int line = d.line();
+        if (line < 0 || line >= editor.document().getLineCount()) {
             return;
         }
-
-        double y = ctx.getVisualLineY(d.line());
 
         switch (d.type()) {
             case LINE_BACKGROUND -> {
                 Color effectiveColor = (d == hoveredDecoration && d.hoverColor() != null)
                         ? d.hoverColor() : d.color();
                 gc.setFill(effectiveColor);
-                gc.fillRect(0, y, canvas.getWidth(), ctx.lineHeight());
+                int segCount = wrapModel.segmentCount(line);
+                for (int s = 0; s < segCount; s++) {
+                    gc.fillRect(0, ctx.getSegmentY(line, s), canvas.getWidth(), ctx.lineHeight());
+                }
             }
             case TEXT_HIGHLIGHT -> {
                 Color effectiveColor = (d == hoveredDecoration && d.hoverColor() != null)
                         ? d.hoverColor() : d.color();
                 gc.setFill(effectiveColor);
-                double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(d.line(), d.startCol());
-                double x = gutterWidth() + measureWidthUpToCol(d.line(), d.startCol()) + inlineOffset - horizontalScrollBar.getValue();
-                double w = measureWidthUpToCol(d.line(), d.endCol()) - measureWidthUpToCol(d.line(), d.startCol());
-                gc.fillRect(x, y, w, ctx.lineHeight());
+                forEachDecorationSpan(ctx, line, d.startCol(), d.endCol(),
+                        (seg, y, x1, x2) -> gc.fillRect(x1, y, Math.max(x2 - x1, 0), ctx.lineHeight()));
             }
             case TEXT_UNDERLINE -> {
                 Color effectiveColor = (d == hoveredDecoration && d.hoverColor() != null)
                         ? d.hoverColor() : d.color();
                 gc.setStroke(effectiveColor);
                 gc.setLineWidth(1.5);
-                double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(d.line(), d.startCol());
-                double x1 = gutterWidth() + measureWidthUpToCol(d.line(), d.startCol()) + inlineOffset - horizontalScrollBar.getValue();
-                double x2 = gutterWidth() + measureWidthUpToCol(d.line(), d.endCol()) + inlineOffset - horizontalScrollBar.getValue();
-                double lineY = y + ctx.lineHeight() - 2;
-                if (d.decorationStyle() == TextDecorationStyle.WAVY) {
-                    drawWavyLine(gc, x1, lineY, x2, lineY);
-                } else if (d.decorationStyle() == TextDecorationStyle.DASHED) {
-                    gc.setLineDashes(4, 4);
-                    gc.strokeLine(x1, lineY, x2, lineY);
-                    gc.setLineDashes();
-                } else {
-                    gc.strokeLine(x1, lineY, x2, lineY);
-                }
+                forEachDecorationSpan(ctx, line, d.startCol(), d.endCol(), (seg, y, x1, x2) -> {
+                    double lineY = y + ctx.lineHeight() - 2;
+                    if (d.decorationStyle() == TextDecorationStyle.WAVY) {
+                        drawWavyLine(gc, x1, lineY, x2, lineY);
+                    } else if (d.decorationStyle() == TextDecorationStyle.DASHED) {
+                        gc.setLineDashes(4, 4);
+                        gc.strokeLine(x1, lineY, x2, lineY);
+                        gc.setLineDashes();
+                    } else {
+                        gc.strokeLine(x1, lineY, x2, lineY);
+                    }
+                });
             }
             case TEXT_STRIKETHROUGH -> {
                 Color effectiveColor = (d == hoveredDecoration && d.hoverColor() != null)
                         ? d.hoverColor() : d.color();
                 gc.setStroke(effectiveColor);
                 gc.setLineWidth(1);
-                double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(d.line(), d.startCol());
-                double x1 = gutterWidth() + measureWidthUpToCol(d.line(), d.startCol()) + inlineOffset - horizontalScrollBar.getValue();
-                double x2 = gutterWidth() + measureWidthUpToCol(d.line(), d.endCol()) + inlineOffset - horizontalScrollBar.getValue();
-                double lineY = y + ctx.lineHeight() * 0.5;
-                gc.strokeLine(x1, lineY, x2, lineY);
+                forEachDecorationSpan(ctx, line, d.startCol(), d.endCol(),
+                        (seg, y, x1, x2) -> gc.strokeLine(x1, y + ctx.lineHeight() * 0.5, x2, y + ctx.lineHeight() * 0.5));
             }
             case AFTER_TEXT -> {
                 Color effectiveColor = (d == hoveredDecoration && d.hoverColor() != null)
                         ? d.hoverColor() : editor.afterTextColor();
                 gc.setFill(effectiveColor);
-                String lineText = editor.document().getLine(d.line());
-                if (lineText == null || lineText.isEmpty()) {
-                    lineText = "";
-                }
+                String lineText = editor.document().getLine(line);
+                int lineLen = (lineText == null) ? 0 : lineText.length();
+                int seg = wrapModel.segmentOf(line, lineLen);
+                int segStart = wrapModel.segmentStart(line, seg);
+                double y = ctx.getSegmentY(line, seg);
                 gc.setFont(smallFont);
-                int lineLen = lineText.length();
-                double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(d.line(), lineLen);
-                double x = gutterWidth() + measureWidthUpToCol(d.line(), lineLen) + inlineOffset + measureWidth("  ") - horizontalScrollBar.getValue();
+                double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, lineLen);
+                double x = gutterWidth() + measureSegmentWidth(line, segStart, lineLen) + inlineOffset
+                        + measureWidth("  ") - horizontalScrollBar.getValue();
                 gc.fillText(d.afterText(), x, y + ctx.lineHeight() * 0.8);
                 gc.setFont(editor.font());
             }
@@ -836,12 +984,12 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         }
         caretVisible = true;
         EditorCaret caret = editor.primaryCaret();
-        double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(caret.line(), caret.column());
-        double x = gutterWidth() + measureWidthUpToCol(caret.line(), caret.column()) + inlineOffset - horizontalScrollBar.getValue();
+        int caretSeg = caretSegment(caret.line(), caret.column());
+        double x = columnX(ctx, caret.line(), caret.column(), caretSeg);
         if (compositionText != null && !compositionText.isEmpty()) {
             x += measureWidth(compositionText);
         }
-        double y = ctx.getVisualLineY(caret.line());
+        double y = columnTopY(ctx, caret.line(), caret.column(), caretSeg);
         double lineH = editor.calculateLineHeight();
         if (x < gutterWidth() - 1 || x > canvas.getWidth() || y + lineH < 0 || y > canvas.getHeight()) {
             cursorNode.setVisible(false);
@@ -862,16 +1010,21 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         drawGutterContent(gc, ctx, editor, ctx.firstVisibleLine(), ctx.lastVisibleLine());
     }
 
-    /** 无选区时才绘制光标所在行的高亮背景。 */
+    /** 无选区时才绘制光标所在行的高亮背景（软换行下逐可见段绘制）。 */
     private void drawCurrentLineHighlight(GraphicsContext gc, RenderContext ctx, JFXEditor editor, int startLine, int endLine) {
         int currentLine = editor.primaryCaret().line();
-        for (int i = startLine; i <= endLine; i++) {
-            if (i == currentLine && !editor.primaryCaret().hasSelection()) {
-                if (!ctx.isVisualLineVisible(i)) continue;
-                double y = ctx.getVisualLineY(i);
-                gc.setFill(editor.currentLineColor());
-                gc.fillRect(0, y, canvas.getWidth(), ctx.lineHeight());
-            }
+        if (currentLine < startLine || currentLine > endLine) return;
+        if (editor.primaryCaret().hasSelection() || !ctx.isVisualLineVisible(currentLine)) return;
+
+        gc.setFill(editor.currentLineColor());
+        int segCount = wrapModel.segmentCount(currentLine);
+        int top = (int) ctx.scrollY();
+        int bottom = (int) (ctx.scrollY() + ctx.height() / ctx.lineHeight());
+        int firstVisual = ctx.lineOffsetMap().getVisualLine(currentLine);
+        for (int s = 0; s < segCount; s++) {
+            int visualRow = firstVisual + s;
+            if (visualRow < top || visualRow > bottom) continue;
+            gc.fillRect(0, ctx.getSegmentY(currentLine, s), canvas.getWidth(), ctx.lineHeight());
         }
     }
 
@@ -893,15 +1046,30 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         int selEnd = Math.min(endLine, caret.selectionEndLine());
 
         for (int line = selStart; line <= selEnd; line++) {
-            int startCol = caret.selectionStartCol();
-            int endCol = caret.selectionEndCol();
-            if (line != caret.selectionStartLine()) startCol = 0;
-            if (line != caret.selectionEndLine()) endCol = editor.document().getLineLength(line);
+            int startCol = (line == caret.selectionStartLine()) ? caret.selectionStartCol() : 0;
+            int endCol = (line == caret.selectionEndLine()) ? caret.selectionEndCol() : editor.document().getLineLength(line);
+            drawSelectionOnLine(gc, ctx, line, startCol, endCol);
+        }
+    }
 
-            double y = ctx.getVisualLineY(line);
-            double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, startCol);
-            double x = gutterWidth() + measureWidthUpToCol(line, startCol) + inlineOffset - horizontalScrollBar.getValue();
-            double width = measureWidthUpToCol(line, endCol) - measureWidthUpToCol(line, startCol);
+    /**
+     * 在单个文档行上按软换行段拆出选区矩形：与选区列区间 {@code [startCol,
+     * endCol]} 相交的每个段各画一条（首/末段取实际列，中间段整段到文本宽）。
+     * 空行仍画 1px，避免多行选区中断裂。
+     */
+    private void drawSelectionOnLine(GraphicsContext gc, RenderContext ctx, int line, int startCol, int endCol) {
+        int segCount = wrapModel.segmentCount(line);
+        for (int s = 0; s < segCount; s++) {
+            int segStart = wrapModel.segmentStart(line, s);
+            int segEnd = wrapModel.segmentEndCol(line, s);
+            if (endCol < segStart || startCol > segEnd) continue;
+            int a = Math.max(startCol, segStart);
+            int b = Math.min(endCol, segEnd);
+            if (b < a || (b == a && segStart != segEnd)) continue;
+            double y = ctx.getSegmentY(line, s);
+            double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, a);
+            double x = gutterWidth() + measureSegmentWidth(line, segStart, a) + inlineOffset - horizontalScrollBar.getValue();
+            double width = measureSegmentWidth(line, segStart, b) - measureSegmentWidth(line, segStart, a);
             gc.fillRect(x, y, Math.max(width, 1), ctx.lineHeight());
         }
     }
@@ -916,10 +1084,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         double lineH = editor.calculateLineHeight();
         gc.setFill(editor.caretColor());
         for (EditorCaret caret : editor.extraCarets()) {
-            double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(caret.line(), caret.column());
-            double x = gutterWidth() + measureWidthUpToCol(caret.line(), caret.column())
-                    + inlineOffset - horizontalScrollBar.getValue();
-            double y = ctx.getVisualLineY(caret.line());
+            double x = columnX(ctx, caret.line(), caret.column());
+            double y = columnTopY(ctx, caret.line(), caret.column());
             if (x < gutterWidth() - 1 || x > canvas.getWidth() || y + lineH < 0 || y > canvas.getHeight()) {
                 continue;
             }
@@ -935,70 +1101,101 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     private void drawTextInRange(GraphicsContext gc, RenderContext ctx, JFXEditor editor, int startLine, int endLine) {
         gc.setFont(editor.font());
         double viewportWidth = canvas.getWidth() - gutterWidth();
+        boolean wrap = wrapModel.isEnabled();
+        int top = (int) ctx.scrollY();
+        int bottom = (int) (ctx.scrollY() + ctx.height() / ctx.lineHeight());
 
         for (int line = startLine; line <= endLine; line++) {
             if (line >= editor.document().getLineCount()) {
                 break;
             }
-
             if (!ctx.isVisualLineVisible(line)) {
                 continue;
             }
-
-            double y = ctx.getVisualLineY(line) + ctx.lineHeight() * 0.8;
             String lineText = editor.document().getLine(line);
-
             if (lineText == null || lineText.isEmpty()) {
                 continue;
             }
-
             int lineLen = lineText.length();
-            if (lineLen > LONG_LINE_THRESHOLD) {
-                drawLongLineViewport(gc, ctx, editor, line, lineText, lineLen, viewportWidth, y);
+
+            if (!wrap) {
+                double y = ctx.getVisualLineY(line) + ctx.lineHeight() * 0.8;
+                if (lineLen > LONG_LINE_THRESHOLD) {
+                    drawLongLineViewport(gc, ctx, editor, line, lineText, lineLen, viewportWidth, y);
+                } else {
+                    drawLineSegmentText(gc, ctx, editor, line, lineText, 0, lineLen, y);
+                }
                 continue;
             }
 
-            if (editor.highlightEngine() != null) {
-                List<Token> tokens = editor.highlightEngine().getTokens(line);
-                int lastEnd = 0;
-
-                for (Token token : tokens) {
-                    int tokenStart = Math.min(token.start(), lineLen);
-                    int tokenEnd = Math.min(token.end(), lineLen);
-
-                    if (tokenStart > lastEnd) {
-                        gc.setFill(editor.textColor());
-                        String gapText = safeSubstring(lineText, lastEnd, tokenStart);
-                        double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, lastEnd);
-                        double x = gutterWidth() + measureWidthUpToCol(line, lastEnd) + inlineOffset - horizontalScrollBar.getValue();
-                        gc.fillText(gapText, x, y);
-                    }
-
-                    HighlightStyle style = editor.highlightEngine().getStyle(token.type());
-                    gc.setFill(style.color());
-
-                    if (tokenEnd > tokenStart) {
-                        String text = safeSubstring(lineText, tokenStart, tokenEnd);
-                        double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, tokenStart);
-                        double x = gutterWidth() + measureWidthUpToCol(line, tokenStart) + inlineOffset - horizontalScrollBar.getValue();
-                        gc.fillText(text, x, y);
-                    }
-                    lastEnd = tokenEnd;
+            int segCount = wrapModel.segmentCount(line);
+            int firstVisual = ctx.lineOffsetMap().getVisualLine(line);
+            for (int s = 0; s < segCount; s++) {
+                int visualRow = firstVisual + s;
+                if (visualRow < top || visualRow > bottom) {
+                    continue;
                 }
-
-                if (lastEnd < lineText.length()) {
-                    gc.setFill(editor.textColor());
-                    String tailText = safeSubstring(lineText, lastEnd, lineText.length());
-                    double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, lastEnd);
-                    double x = gutterWidth() + measureWidthUpToCol(line, lastEnd) + inlineOffset - horizontalScrollBar.getValue();
-                    gc.fillText(tailText, x, y);
-                }
-            } else {
-                gc.setFill(editor.textColor());
-                double x = gutterWidth() - horizontalScrollBar.getValue();
-                gc.fillText(lineText, x, y);
+                int segStart = wrapModel.segmentStart(line, s);
+                int segEnd = wrapModel.segmentEndCol(line, s);
+                double y = ctx.getSegmentY(line, s) + ctx.lineHeight() * 0.8;
+                drawLineSegmentText(gc, ctx, editor, line, lineText, segStart, segEnd, y);
             }
         }
+    }
+
+    /**
+     * 绘制单个视觉行段 {@code [segStart, segEnd)} 的文本：有高亮引擎时逐
+     * token 与段区间求交上色（token 间隙与尾巴用默认文本色）；x 一律相对
+     * 段起始列实测。无软换行时以 {@code [0, 行长)} 调用，行为等同整行绘制。
+     */
+    private void drawLineSegmentText(GraphicsContext gc, RenderContext ctx, JFXEditor editor,
+                                     int line, String lineText, int segStart, int segEnd, double y) {
+        int lineLen = lineText.length();
+        int from = Math.max(0, segStart);
+        int to = Math.min(segEnd, lineLen);
+        if (from >= to) {
+            return;
+        }
+        if (editor.highlightEngine() != null) {
+            List<Token> tokens = editor.highlightEngine().getTokens(line);
+            int cursor = from;
+            for (Token token : tokens) {
+                int ts = Math.max(from, Math.min(token.start(), to));
+                int te = Math.max(from, Math.min(token.end(), to));
+                if (te <= from) continue;
+                if (ts >= to) break;
+                if (ts > cursor) {
+                    gc.setFill(editor.textColor());
+                    drawTextPiece(gc, ctx, line, lineText, segStart, cursor, ts, y);
+                    cursor = ts;
+                }
+                if (te > ts) {
+                    HighlightStyle style = editor.highlightEngine().getStyle(token.type());
+                    gc.setFill(style.color());
+                    drawTextPiece(gc, ctx, line, lineText, segStart, ts, te, y);
+                    cursor = te;
+                }
+            }
+            if (cursor < to) {
+                gc.setFill(editor.textColor());
+                drawTextPiece(gc, ctx, line, lineText, segStart, cursor, to, y);
+            }
+        } else {
+            gc.setFill(editor.textColor());
+            drawTextPiece(gc, ctx, line, lineText, segStart, from, to, y);
+        }
+    }
+
+    /** 绘制段内一段文本 {@code [from, to)}，x 相对段起始列实测。 */
+    private void drawTextPiece(GraphicsContext gc, RenderContext ctx, int line, String lineText,
+                              int segStart, int from, int to, double y) {
+        String text = safeSubstring(lineText, from, to);
+        if (text.isEmpty()) {
+            return;
+        }
+        double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(line, from);
+        double x = gutterWidth() + measureSegmentWidth(line, segStart, from) + inlineOffset - horizontalScrollBar.getValue();
+        gc.fillText(text, x, y);
     }
 
     /** 超长行视口裁剪绘制：只绘可见列区间附近的文本与 token。 */
@@ -1079,8 +1276,9 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         JFXEditor editor = getSkinnable();
         EditorCaret caret = editor.primaryCaret();
         double lineH = editor.calculateLineHeight();
-        LineOffsetMap offsetMap = buildOffsetMap();
-        int visualLine = offsetMap.getVisualLine(caret.line());
+        refreshWrapConfig();
+        LineOffsetMap offsetMap = offsetMap();
+        int visualLine = offsetMap.getVisualLine(caret.line(), caret.column());
 
         double vVal = verticalScrollBar.getValue();
         double visibleLineCount = canvas.getHeight() / lineH;
@@ -1091,6 +1289,9 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
             verticalScrollBar.setValue(visualLine + 1 - visibleLineCount);
         }
 
+        if (editor.isWrapText()) {
+            return;
+        }
         double cursorX = measureWidthUpToCol(caret.line(), caret.column());
         double hVal = horizontalScrollBar.getValue();
         double viewportW = canvas.getWidth() - gutterWidth();
@@ -1255,6 +1456,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
                 || (ctrlLike && !altGr) || (event.isAltDown() && !altGr)) return;
 
         compositionText = "";
+        caretUpperAffinity = false;
 
         JFXEditor editor = getSkinnable();
         if (editor.primaryCaret().hasSelection()) {
@@ -1315,9 +1517,11 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         canvas.requestFocus();
         compositionText = "";
         int visualLine = (int) (event.getY() / getSkinnable().calculateLineHeight() + verticalScrollBar.getValue());
-        int line = buildOffsetMap().getDocumentLine(visualLine);
+        LineOffsetMap.VisualPosition vp = offsetMap().getVisualPosition(visualLine);
+        int line = vp.docLine();
         double textX = event.getX() - gutterWidth() + horizontalScrollBar.getValue();
-        int col = getColFromX(line, textX);
+        int col = columnAtX(line, vp.segmentIndex(), textX);
+        updateCaretAffinity(line, col, vp.segmentIndex());
         int[] clamped = clampPositionToDocumentBounds(line, col);
         if (event.isAltDown()) {
             getSkinnable().toggleCaretAt(clamped[0], clamped[1]);
@@ -1339,9 +1543,11 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     /** 鼠标拖动：持续扩展选区并滚动跟随。 */
     private void handleMouseDragged(MouseEvent event) {
         int visualLine = (int) (event.getY() / getSkinnable().calculateLineHeight() + verticalScrollBar.getValue());
-        int line = buildOffsetMap().getDocumentLine(visualLine);
+        LineOffsetMap.VisualPosition vp = offsetMap().getVisualPosition(visualLine);
+        int line = vp.docLine();
         double textX = event.getX() - gutterWidth() + horizontalScrollBar.getValue();
-        int col = getColFromX(line, textX);
+        int col = columnAtX(line, vp.segmentIndex(), textX);
+        updateCaretAffinity(line, col, vp.segmentIndex());
         int[] clamped = clampPositionToDocumentBounds(line, col);
         getSkinnable().primaryCaret().selectTo(clamped[0], clamped[1]);
         getSkinnable().fireCaretChanged(clamped[0], clamped[1]);
@@ -1377,13 +1583,15 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     private void handleMouseMoved(MouseEvent event) {
         JFXEditor editor = getSkinnable();
         int visualLine = (int) (event.getY() / editor.calculateLineHeight() + verticalScrollBar.getValue());
-        int line = buildOffsetMap().getDocumentLine(visualLine);
-        double textX = event.getX() - gutterWidth() + horizontalScrollBar.getValue();
-        int col = getColFromX(line, textX);
+        LineOffsetMap.VisualPosition vp = offsetMap().getVisualPosition(visualLine);
+        int line = vp.docLine();
 
         if (line < 0 || line >= editor.document().getLineCount()) {
             return;
         }
+
+        double textX = event.getX() - gutterWidth() + horizontalScrollBar.getValue();
+        int col = columnAtX(line, vp.segmentIndex(), textX);
 
         List<Decoration> lineDecos = editor.decorationModel().getDecorationsOnLine(line);
         Decoration newHover = findDecorationAt(lineDecos, line, col, editor);
@@ -1494,6 +1702,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     /** 光标移动后的统一收尾：合并重合光标并广播主光标位置。 */
     private boolean afterCaretMovement(boolean changed) {
         JFXEditor editor = getSkinnable();
+        caretUpperAffinity = false;
         editor.dedupeCarets();
         if (changed) {
             EditorCaret p = editor.primaryCaret();
@@ -1534,43 +1743,122 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         return Character.isLetterOrDigit(c) || c == '_';
     }
 
-    /** 光标上移（作用于全部光标）：目标列取期望列与目标行长的较小者。 */
+    /** 光标上移（作用于全部光标）：软换行开启时按视觉行上移，否则按文档行。 */
     private boolean moveUp(boolean shift) {
+        JFXEditor editor = getSkinnable();
+        boolean wrap = editor.isWrapText();
         boolean changed = false;
-        for (EditorCaret c : getSkinnable().allCarets()) {
-            int newLine = Math.max(0, c.line() - 1);
-            int newCol = Math.min(c.preferredColumn(), getSkinnable().document().getLineLength(newLine));
+        for (EditorCaret c : editor.allCarets()) {
+            int newLine;
+            int newCol;
+            if (wrap) {
+                int[] target = visualStep(c, -1);
+                newLine = target[0];
+                newCol = target[1];
+            } else {
+                newLine = Math.max(0, c.line() - 1);
+                newCol = Math.min(c.preferredColumn(), editor.document().getLineLength(newLine));
+            }
             changed |= shift ? c.selectTo(newLine, newCol) : c.moveTo(newLine, newCol);
         }
         return afterCaretMovement(changed);
     }
 
-    /** 光标下移（作用于全部光标）：目标列取期望列与目标行长的较小者。 */
+    /** 光标下移（作用于全部光标）：软换行开启时按视觉行下移，否则按文档行。 */
     private boolean moveDown(boolean shift) {
+        JFXEditor editor = getSkinnable();
+        boolean wrap = editor.isWrapText();
         boolean changed = false;
-        for (EditorCaret c : getSkinnable().allCarets()) {
-            int newLine = Math.min(getSkinnable().document().getLineCount() - 1, c.line() + 1);
-            int newCol = Math.min(c.preferredColumn(), getSkinnable().document().getLineLength(newLine));
+        for (EditorCaret c : editor.allCarets()) {
+            int newLine;
+            int newCol;
+            if (wrap) {
+                int[] target = visualStep(c, 1);
+                newLine = target[0];
+                newCol = target[1];
+            } else {
+                newLine = Math.min(editor.document().getLineCount() - 1, c.line() + 1);
+                newCol = Math.min(c.preferredColumn(), editor.document().getLineLength(newLine));
+            }
             changed |= shift ? c.selectTo(newLine, newCol) : c.moveTo(newLine, newCol);
         }
         return afterCaretMovement(changed);
     }
 
-    /** 移到行首（作用于全部光标；shift 时选择到行首）。 */
+    /**
+     * 软换行下按视觉行移动一步（{@code dir} 为 -1 上、+1 下）：先定当前段，
+     * 跨段或跨行得目标段，再用「段内期望偏移」落到目标段并钳到该段列区间。
+     *
+     * <p>期望偏移在连续上下移动间由 {@link #wrapNavOffset} 持久保留（落点被短段
+     * 钳制也不丢失，回到长段时能恢复列位）；光标被其他操作移过（位置与锚不符）
+     * 则据当前列重新取偏移。多光标下仅与锚相符的光标保持，其余每步重取。</p>
+     */
+    private int[] visualStep(EditorCaret c, int dir) {
+        int line = c.line();
+        int col = c.column();
+        int seg = wrapModel.segmentOf(line, col);
+        int curSegStart = wrapModel.segmentStart(line, seg);
+        int localPref = (line == wrapNavLine && col == wrapNavCol && wrapNavOffset >= 0)
+                ? wrapNavOffset
+                : Math.max(0, col - curSegStart);
+
+        int targetLine;
+        int targetSeg;
+        if (dir < 0) {
+            if (seg > 0) {
+                targetLine = line;
+                targetSeg = seg - 1;
+            } else if (line > 0) {
+                targetLine = line - 1;
+                targetSeg = wrapModel.segmentCount(targetLine) - 1;
+            } else {
+                return recordWrapNav(0, 0, localPref);
+            }
+        } else {
+            if (seg < wrapModel.segmentCount(line) - 1) {
+                targetLine = line;
+                targetSeg = seg + 1;
+            } else if (line < getSkinnable().document().getLineCount() - 1) {
+                targetLine = line + 1;
+                targetSeg = 0;
+            } else {
+                return recordWrapNav(line, wrapModel.segmentEndCol(line, seg), localPref);
+            }
+        }
+        int segStart = wrapModel.segmentStart(targetLine, targetSeg);
+        int segEnd = wrapModel.segmentEndCol(targetLine, targetSeg);
+        return recordWrapNav(targetLine, Math.min(segStart + localPref, segEnd), localPref);
+    }
+
+    /** 记录本次视觉行移动的落点与段内期望偏移，供下一步保持列位。 */
+    private int[] recordWrapNav(int line, int col, int offset) {
+        wrapNavLine = line;
+        wrapNavCol = col;
+        wrapNavOffset = offset;
+        return new int[]{line, col};
+    }
+
+    /** 移到行首（作用于全部光标）：软换行开启时移到当前段起列，shift 时选择到该处。 */
     private boolean moveHome(boolean shift) {
+        JFXEditor editor = getSkinnable();
+        boolean wrap = editor.isWrapText();
         boolean changed = false;
-        for (EditorCaret c : getSkinnable().allCarets()) {
-            changed |= shift ? c.selectTo(c.line(), 0) : c.moveTo(c.line(), 0);
+        for (EditorCaret c : editor.allCarets()) {
+            int target = wrap ? wrapModel.segmentStart(c.line(), wrapModel.segmentOf(c.line(), c.column())) : 0;
+            changed |= shift ? c.selectTo(c.line(), target) : c.moveTo(c.line(), target);
         }
         return afterCaretMovement(changed);
     }
 
-    /** 移到行尾（作用于全部光标；shift 时选择到行尾）。 */
+    /** 移到行尾（作用于全部光标）：软换行开启时移到当前段末列，shift 时选择到该处。 */
     private boolean moveEnd(boolean shift) {
+        JFXEditor editor = getSkinnable();
+        boolean wrap = editor.isWrapText();
         boolean changed = false;
-        for (EditorCaret c : getSkinnable().allCarets()) {
-            int maxCol = getSkinnable().document().getLineLength(c.line());
-            changed |= shift ? c.selectTo(c.line(), maxCol) : c.moveTo(c.line(), maxCol);
+        for (EditorCaret c : editor.allCarets()) {
+            int maxCol = editor.document().getLineLength(c.line());
+            int target = wrap ? wrapModel.segmentEndCol(c.line(), wrapModel.segmentOf(c.line(), c.column())) : maxCol;
+            changed |= shift ? c.selectTo(c.line(), target) : c.moveTo(c.line(), target);
         }
         return afterCaretMovement(changed);
     }
@@ -1608,10 +1896,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
         EditorCaret caret = editor.primaryCaret();
         double lineH = ctx.lineHeight();
-        double y = ctx.getVisualLineY(caret.line());
-        double inlineOffset = ctx.lineOffsetMap().getInlineOffsetAt(caret.line(), caret.column());
-        double x = gutterWidth() + measureWidthUpToCol(caret.line(), caret.column())
-                + inlineOffset - horizontalScrollBar.getValue();
+        double y = columnTopY(ctx, caret.line(), caret.column());
+        double x = columnX(ctx, caret.line(), caret.column());
 
         Color textColor = editor.textColor();
         gc.setFont(editor.font());
@@ -1668,6 +1954,9 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
             control.caretWidthProperty().removeListener(caretStyleListener);
             control.caretBlinkRateProperty().removeListener(caretStyleListener);
             control.gutterFontScaleProperty().removeListener(gutterFontScaleListener);
+            control.wrapTextProperty().removeListener(wrapTextListener);
+            control.lineWrapStrategyProperty().removeListener(wrapStrategyListener);
+            control.document().removeDocumentListener(wrapDocListener);
         }
 
         canvas.focusedProperty().removeListener(canvasFocusListener);

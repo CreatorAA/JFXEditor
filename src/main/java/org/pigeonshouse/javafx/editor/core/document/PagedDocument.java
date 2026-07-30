@@ -4,7 +4,9 @@ import org.pigeonshouse.javafx.editor.core.model.Position;
 import org.pigeonshouse.javafx.editor.core.model.TextRange;
 
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
@@ -47,6 +49,8 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
     private static final int MIN_BLOCK_SIZE = 16;
     /** 缓存块数下限。 */
     private static final int MIN_CACHED_BLOCKS = 2;
+    /** 打开文件时流式扫描的读缓冲大小。 */
+    private static final int SCAN_BUFFER_SIZE = 64 * 1024;
 
     /**
      * 行块：文档行的连续分片。
@@ -139,73 +143,116 @@ public class PagedDocument implements ReplayableDocument, AutoCloseable {
     // ==================== 文件打开 / 保存 ====================
 
     /**
-     * 打开文件：一次顺序扫描（UTF-8，CR/CRLF/LF 均识别为换行）建立
-     * 每块的字节区间、行数、字符数与最长行元数据，<em>不保留行内容</em>。
+     * 打开文件：单遍流式扫描（UTF-8，CR/CRLF/LF 均识别为换行）建立
+     * 每块的字节区间、行数、字符数与最长行元数据，<em>不保留行内容</em>，
+     * 峰值内存仅为读缓冲加单个块的字节（不整读文件）。扫描成功后才
      * 清空既有内容与撤销历史，并广播一次全量变更事件。
      *
      * @param path 目标文件
-     * @throws IOException 读取失败时
+     * @throws IOException 读取失败时（此时文档状态不变）
      */
     public void openFile(Path path) throws IOException {
-        byte[] bytes = Files.readAllBytes(path);
+        List<Block> scanned = scanFile(path);
         int oldLineCount = getLineCount();
 
         blocks.clear();
         undoManager.clear();
         this.filePath = path;
-        this.cachedMaxLineLength = 0;
-
-        if (bytes.length > 0) {
-            scanBytes(bytes);
-        }
+        blocks.addAll(scanned);
 
         prefixDirty = true;
         textDirty = true;
+        recomputeMaxLineLength();
         fireDocumentFullChange(0, getLineCount() - oldLineCount);
     }
 
     /**
-     * 逐字节扫描建块：在行终止符（LF、CR、CRLF）处计行，攒满
-     * {@code blockSize} 行封块；文件末尾必然存在最后一行（可能为空）。
-     * 每块封块时临时解码一次以计算字符数与最长行，随后丢弃内容。
+     * 流式扫描建块：按固定缓冲读取，在行终止符（LF、CR、CRLF）处计行，
+     * 攒满 {@code blockSize} 行封块；文件末尾必然存在最后一行（可能为空）。
+     * 当前块字节暂存于累积器，封块时临时解码一次计算元数据后即释放；
+     * CR 结尾跨缓冲边界经 {@code prevCR} 状态延迟一字节判定 CRLF。
      */
-    private void scanBytes(byte[] bytes) {
-        int blockStart = 0;
-        int linesInBlock = 0;
-        int i = 0;
-        while (i < bytes.length) {
-            byte b = bytes[i];
-            if (b == '\r' || b == '\n') {
-                if (b == '\r' && i + 1 < bytes.length && bytes[i + 1] == '\n') {
-                    i++;
+    private List<Block> scanFile(Path path) throws IOException {
+        List<Block> result = new ArrayList<>();
+        try (InputStream in = Files.newInputStream(path, StandardOpenOption.READ)) {
+            byte[] buf = new byte[SCAN_BUFFER_SIZE];
+            ByteArrayOutputStream blockBytes = new ByteArrayOutputStream();
+            long blockStart = 0;
+            long totalRead = 0;
+            int linesInBlock = 0;
+            boolean prevCR = false;
+            int read;
+            while ((read = in.read(buf)) > 0) {
+                totalRead += read;
+                int flushed = 0; // buf[0, flushed) 已写入累积器
+                for (int i = 0; i < read; i++) {
+                    byte b = buf[i];
+                    boolean consumed = false;
+                    if (prevCR) {
+                        // 上一字节 CR 的终止符在此定界：CRLF 含当前 LF，孤立 CR 止于当前字节前
+                        prevCR = false;
+                        consumed = (b == '\n');
+                        int lineEnd = consumed ? i + 1 : i;
+                        linesInBlock++;
+                        if (linesInBlock == blockSize) {
+                            blockBytes.write(buf, flushed, lineEnd - flushed);
+                            flushed = lineEnd;
+                            blockStart = closeScannedBlock(result, blockBytes, blockStart, blockSize);
+                            linesInBlock = 0;
+                        }
+                    }
+                    if (!consumed) {
+                        if (b == '\r') {
+                            prevCR = true;
+                        } else if (b == '\n') {
+                            linesInBlock++;
+                            if (linesInBlock == blockSize) {
+                                blockBytes.write(buf, flushed, i + 1 - flushed);
+                                flushed = i + 1;
+                                blockStart = closeScannedBlock(result, blockBytes, blockStart, blockSize);
+                                linesInBlock = 0;
+                            }
+                        }
+                    }
                 }
+                blockBytes.write(buf, flushed, read - flushed);
+            }
+            if (totalRead == 0) {
+                return result;
+            }
+            // 文件以孤立 CR 结尾：该 CR 同样构成行终止符
+            if (prevCR) {
                 linesInBlock++;
                 if (linesInBlock == blockSize) {
-                    addScannedBlock(bytes, blockStart, i + 1, linesInBlock);
-                    blockStart = i + 1;
+                    blockStart = closeScannedBlock(result, blockBytes, blockStart, blockSize);
                     linesInBlock = 0;
                 }
             }
-            i++;
+            // 末块：最后一个终止符之后的内容构成最后一行（可能为空行）
+            closeScannedBlock(result, blockBytes, blockStart, linesInBlock + 1);
         }
-        // 末块：最后一个终止符之后的内容构成最后一行（可能为空行）
-        addScannedBlock(bytes, blockStart, bytes.length, linesInBlock + 1);
+        return result;
     }
 
-    /** 由扫描区间构造 clean 未加载块，元数据经一次临时解码计算。 */
-    private void addScannedBlock(byte[] bytes, int start, int end, int lineCount) {
+    /**
+     * 以累积器内的字节封 clean 未加载块，元数据经一次临时解码计算，
+     * 随后重置累积器。
+     *
+     * @return 下一块的起始字节偏移
+     */
+    private long closeScannedBlock(List<Block> result, ByteArrayOutputStream blockBytes,
+                                   long blockStart, int lineCount) {
+        byte[] data = blockBytes.toByteArray();
         Block block = new Block();
-        block.byteOffset = start;
-        block.byteLength = end - start;
-        block.lineCount = lineCount;
+        block.byteOffset = blockStart;
+        block.byteLength = data.length;
         block.reloadable = true;
-        List<String> lines = decodeLines(bytes, start, end - start, lineCount);
+        List<String> lines = decodeLines(data, 0, data.length, lineCount);
         updateBlockMetadata(block, lines);
         block.lines = null;
-        blocks.add(block);
-        if (block.maxLineLength > cachedMaxLineLength) {
-            cachedMaxLineLength = block.maxLineLength;
-        }
+        result.add(block);
+        blockBytes.reset();
+        return blockStart + data.length;
     }
 
     /** 解码字节区间为行列表：UTF-8 解码 → LF 规范化 → 取前 lineCount 行。 */

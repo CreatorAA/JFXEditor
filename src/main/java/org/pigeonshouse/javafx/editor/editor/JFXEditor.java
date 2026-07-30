@@ -20,6 +20,8 @@ import org.pigeonshouse.javafx.editor.editor.indent.IndentStrategies;
 import org.pigeonshouse.javafx.editor.editor.indent.IndentStrategy;
 import org.pigeonshouse.javafx.editor.editor.input.KeyBindingRegistry;
 import org.pigeonshouse.javafx.editor.editor.render.RenderLayer;
+import org.pigeonshouse.javafx.editor.editor.wrap.LineWrapStrategies;
+import org.pigeonshouse.javafx.editor.editor.wrap.LineWrapStrategy;
 import org.pigeonshouse.javafx.editor.syntax.*;
 
 import java.util.*;
@@ -68,7 +70,7 @@ import java.util.function.Function;
 public class JFXEditor extends Control {
 
     /** 组件版本号。 */
-    public static final String VERSION = "1.4-preview";
+    public static final String VERSION = "1.5-preview";
 
     /** 文档模型，构造后终身不换。 */
     private final Document document;
@@ -95,6 +97,8 @@ public class JFXEditor extends Control {
     private final SimpleBooleanProperty readOnly;
     /** 缩进策略（非 CSS 属性，默认 BASIC；置 null 时归一化为 NONE）。 */
     private final SimpleObjectProperty<IndentStrategy> indentStrategy;
+    /** 软换行断点策略（非 CSS 属性，默认单词边界；置 null 时归一化为默认）。 */
+    private final SimpleObjectProperty<LineWrapStrategy> lineWrapStrategy;
     /** 光标变化监听器列表。 */
     private final List<CaretChangeListener> caretListeners;
 
@@ -159,6 +163,18 @@ public class JFXEditor extends Control {
                 @Override
                 public StyleableProperty<Boolean> getStyleableProperty(JFXEditor editor) {
                     return editor.caretVisible;
+                }
+            };
+    private static final CssMetaData<JFXEditor, Boolean> WRAP_TEXT_META =
+            new CssMetaData<>("-editor-wrap-text", StyleConverter.getBooleanConverter(), Boolean.FALSE) {
+                @Override
+                public boolean isSettable(JFXEditor editor) {
+                    return !editor.wrapText.isBound();
+                }
+
+                @Override
+                public StyleableProperty<Boolean> getStyleableProperty(JFXEditor editor) {
+                    return editor.wrapText;
                 }
             };
     private static final CssMetaData<JFXEditor, Color> GHOST_TEXT_COLOR_META =
@@ -267,7 +283,7 @@ public class JFXEditor extends Control {
                 CARET_COLOR_META, GUTTER_BACKGROUND_META, GUTTER_TEXT_META, AFTER_TEXT_META,
                 GUTTER_WIDTH_META, LINE_HEIGHT_MULTIPLIER_META, FONT_META,
                 CARET_WIDTH_META, CARET_BLINK_RATE_META, CARET_VISIBLE_META, GUTTER_FONT_SCALE_META,
-                GHOST_TEXT_COLOR_META));
+                GHOST_TEXT_COLOR_META, WRAP_TEXT_META));
         list.addAll(TOKEN_COLOR_METAS.values());
         list.addAll(TOKEN_STYLE_METAS.values());
         return Collections.unmodifiableList(list);
@@ -334,6 +350,9 @@ public class JFXEditor extends Control {
     /** 光标可见性（CSS {@code -editor-caret-visible}，默认 true；关闭后皮肤不绘制任何光标）。 */
     private final SimpleStyleableBooleanProperty caretVisible =
             new SimpleStyleableBooleanProperty(CARET_VISIBLE_META, this, "caretVisible", true);
+    /** 软换行开关（CSS {@code -editor-wrap-text}，默认 false；开启后按视口宽度折行、隐藏水平滚动条）。 */
+    private final SimpleStyleableBooleanProperty wrapText =
+            new SimpleStyleableBooleanProperty(WRAP_TEXT_META, this, "wrapText", false);
     private final StyleableDoubleProperty gutterFontScale =
             new SimpleStyleableDoubleProperty(GUTTER_FONT_SCALE_META, this, "gutterFontScale", 0.85);
     private final StyleableObjectProperty<Color> ghostTextColor =
@@ -392,6 +411,12 @@ public class JFXEditor extends Control {
         this.indentStrategy.addListener((obs, oldVal, newVal) -> {
             if (newVal == null) {
                 this.indentStrategy.set(IndentStrategies.NONE);
+            }
+        });
+        this.lineWrapStrategy = new SimpleObjectProperty<>(this, "lineWrapStrategy", LineWrapStrategies.WORD_BOUNDARY);
+        this.lineWrapStrategy.addListener((obs, oldVal, newVal) -> {
+            if (newVal == null) {
+                this.lineWrapStrategy.set(LineWrapStrategies.WORD_BOUNDARY);
             }
         });
         this.caretListeners = new CopyOnWriteArrayList<>();
@@ -907,6 +932,48 @@ public class JFXEditor extends Control {
      */
     public void setIndentStrategy(IndentStrategy strategy) {
         indentStrategy.set(strategy != null ? strategy : IndentStrategies.NONE);
+    }
+
+    /** @return 是否开启软换行（CSS {@code -editor-wrap-text}，默认 false） */
+    public boolean isWrapText() {
+        return wrapText.get();
+    }
+
+    /** @return 软换行开关属性（CSS 可样式化） */
+    public BooleanProperty wrapTextProperty() {
+        return wrapText;
+    }
+
+    /**
+     * 设置是否开启软换行（等价于 CSS {@code -editor-wrap-text}，代码
+     * 设置为 USER 起源，不会被 UA 默认样式覆盖）。
+     *
+     * <p>开启后长行按视口宽度折为多个视觉行、不再横向滚动，
+     * 光标上下移动与 Home/End 按视觉行语义。</p>
+     *
+     * @param wrap 是否开启软换行
+     */
+    public void setWrapText(boolean wrap) {
+        wrapText.set(wrap);
+    }
+
+    /** @return 当前软换行断点策略（默认 {@link LineWrapStrategies#WORD_BOUNDARY}，永不为 {@code null}） */
+    public LineWrapStrategy getLineWrapStrategy() {
+        return lineWrapStrategy.get();
+    }
+
+    /** @return 软换行断点策略属性 */
+    public ObjectProperty<LineWrapStrategy> lineWrapStrategyProperty() {
+        return lineWrapStrategy;
+    }
+
+    /**
+     * 设置软换行断点策略。
+     *
+     * @param strategy 新策略；{@code null} 归一化为 {@link LineWrapStrategies#WORD_BOUNDARY}
+     */
+    public void setLineWrapStrategy(LineWrapStrategy strategy) {
+        lineWrapStrategy.set(strategy != null ? strategy : LineWrapStrategies.WORD_BOUNDARY);
     }
 
     /** 由 Skin 同步 Canvas 焦点到控件焦点与 {@code :focused} 伪类。 */
