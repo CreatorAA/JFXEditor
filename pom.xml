@@ -6,7 +6,7 @@
 
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.5-preview</version>
+    <version>1.6-preview</version>
 
     <name>JFXEditor</name>
     <description>Canvas-based JavaFX code editor component with Tree-sitter syntax highlighting</description>

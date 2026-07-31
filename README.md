@@ -33,7 +33,7 @@
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.5-preview</version>
+    <version>1.6-preview</version>
 </dependency>
 ```
 
@@ -84,6 +84,7 @@ scene.getStylesheets().setAll(EditorTheme.DEFAULT.getStylesheet());
 | `demos/jfxeditor-demo-fxml` | FXML 内联 -editor-* 样式（Ocean / Sunset 双编辑器） |
 | `demos/jfxeditor-demo-css` | 四套主题运行时切换 + 编辑 themes/ 下 CSS 即时热加载 |
 | `demos/jfxeditor-demo-richtext` | 标记语法实时渲染为行间组件（图片/表格/链接/文件索引等） |
+| `demos/jfxeditor-demo-minimap` | 基于公开 API 的文档缩略图（语法着色/视口联动/点击跳转/导出 PNG） |
 
 ```bash
 # 进入任意演示工程目录启动，例如：

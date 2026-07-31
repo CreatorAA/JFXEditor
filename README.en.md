@@ -33,7 +33,7 @@ A native JavaFX code editor component rendered entirely on **Canvas**, highly ex
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.5-preview</version>
+    <version>1.6-preview</version>
 </dependency>
 ```
 
@@ -84,6 +84,7 @@ Demos live in [demos/](demos).:
 | `demos/jfxeditor-demo-fxml` | FXML inline `-editor-*` styling (Ocean / Sunset dual editors) |
 | `demos/jfxeditor-demo-css` | Runtime switching of four themes + hot reload of CSS under `themes/` |
 | `demos/jfxeditor-demo-richtext` | Markup tags rendered live as inline widgets (images/tables/links/file index, etc.) |
+| `demos/jfxeditor-demo-minimap` | Document minimap built on public API only (syntax colors/viewport sync/click-to-jump/PNG export) |
 
 ```bash
 # launch from any demo project directory, e.g.:

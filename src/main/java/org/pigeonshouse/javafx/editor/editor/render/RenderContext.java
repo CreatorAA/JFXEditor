@@ -144,6 +144,37 @@ public record RenderContext(
     }
 
     /**
+     * 计算 {@code (行, 列)} 处的绘制 x 像素坐标（与 {@link #getColumnY(int, int)}
+     * 对称的 X 轴定位）：{@code gutter 宽 + 所在段起点到该列的实测宽 + 行内推移 − scrollX}。
+     * 软换行时每段从左缘重绘，故宽度自该列所在段的起始列量起。
+     *
+     * @param documentLine 文档行号
+     * @param column       列号（超出行长按行长处理）
+     * @return 该列的绘制 x 像素坐标
+     */
+    public double getColumnX(int documentLine, int column) {
+        int seg = lineOffsetMap.segmentIndexAt(documentLine, column);
+        int segStart = lineOffsetMap.segmentStartColumn(documentLine, seg);
+        return gutterWidth + measureText(documentLine, segStart, column)
+                + lineOffsetMap.getInlineOffsetAt(documentLine, column) - scrollX;
+    }
+
+    /** 经共享测量节点实测某行 {@code [fromCol, toCol)} 段的像素宽度（列钳到行长，仅 FX 线程）。 */
+    private double measureText(int documentLine, int fromCol, int toCol) {
+        if (document == null || documentLine < 0 || documentLine >= document.getLineCount()) {
+            return 0;
+        }
+        int lineLen = document.getLineLength(documentLine);
+        int a = Math.max(0, Math.min(fromCol, lineLen));
+        int b = Math.max(a, Math.min(toCol, lineLen));
+        if (b <= a) {
+            return 0;
+        }
+        helperText.setText(document.getLineSegment(documentLine, a, b));
+        return helperText.getLayoutBounds().getWidth();
+    }
+
+    /**
      * 计算文档行指定<strong>软换行段</strong>顶部的 y 像素坐标：
      * {@code (首段视觉行 + 段号 + 基准偏移 - scrollY) * 行高}。
      *

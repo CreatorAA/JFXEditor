@@ -3,6 +3,8 @@ package org.pigeonshouse.javafx.editor.editor;
 import javafx.beans.InvalidationListener;
 import javafx.beans.property.*;
 import javafx.css.*;
+import javafx.geometry.Bounds;
+import javafx.geometry.Point2D;
 import javafx.scene.control.Control;
 import javafx.scene.control.Skin;
 import javafx.scene.input.Clipboard;
@@ -70,7 +72,7 @@ import java.util.function.Function;
 public class JFXEditor extends Control {
 
     /** 组件版本号。 */
-    public static final String VERSION = "1.5-preview";
+    public static final String VERSION = "1.6-preview";
 
     /** 文档模型，构造后终身不换。 */
     private final Document document;
@@ -101,6 +103,8 @@ public class JFXEditor extends Control {
     private final SimpleObjectProperty<LineWrapStrategy> lineWrapStrategy;
     /** 光标变化监听器列表。 */
     private final List<CaretChangeListener> caretListeners;
+    /** 视口（滚动）变化监听器列表。 */
+    private final List<ViewportChangeListener> viewportListeners;
 
     /** 只读重绘计数器：自增即触发 Skin 重绘，外部通过 {@link #requestRepaint()} 驱动。 */
     private final ReadOnlyLongWrapper repaints = new ReadOnlyLongWrapper(this, "repaints", 0);
@@ -420,6 +424,7 @@ public class JFXEditor extends Control {
             }
         });
         this.caretListeners = new CopyOnWriteArrayList<>();
+        this.viewportListeners = new CopyOnWriteArrayList<>();
 
         InvalidationListener tokenRestyle = obs -> onTokenStyleChanged();
         for (TokenType type : TokenType.values()) {
@@ -1557,6 +1562,246 @@ public class JFXEditor extends Control {
         String clipboardText = Clipboard.getSystemClipboard().getString();
         if (clipboardText != null) {
             paste(clipboardText);
+        }
+    }
+
+    // ==================== 几何 / 视口 / 滚动（委派到实现 EditorGeometry 的皮肤） ====================
+    // 坐标为 editor 本地像素，与控件上收到的 MouseEvent 同一空间；行列 0 起。
+    // 若当前皮肤未实现 EditorGeometry，这些方法返回文档化的兑底值（null / -1 / 无操作）。
+
+    /** @return 当前皮肤实现了 {@link EditorGeometry} 时返回它，否则 {@code null} */
+    private EditorGeometry geometry() {
+        Skin<?> skin = getSkin();
+        return (skin instanceof EditorGeometry g) ? g : null;
+    }
+
+    /**
+     * @return 当前皮肤是否提供几何能力（决定 hitTest/locate/视口/滚动/
+     *         wordRangeAt 等空间类方法是否返回有效值）
+     */
+    public boolean hasGeometry() {
+        return geometry() != null;
+    }
+
+    /**
+     * 像素坐标反解为文档位置（结果钳制到文档合法范围）。
+     *
+     * @param x editor 本地 x（像素）
+     * @param y editor 本地 y（像素）
+     * @return 命中的文档位置；皮肤未提供几何能力时返回 {@code null}
+     */
+    public Position hitTest(double x, double y) {
+        EditorGeometry g = geometry();
+        return g != null ? g.hitTest(x, y) : null;
+    }
+
+    /**
+     * 仅按像素 y 反解文档行（结果钳制）。
+     *
+     * @param y editor 本地 y（像素）
+     * @return 文档行号；皮肤未提供几何能力或空文档时返回 {@code -1}
+     */
+    public int lineAtY(double y) {
+        EditorGeometry g = geometry();
+        return g != null ? g.lineAtY(y) : -1;
+    }
+
+    /**
+     * 文档位置转像素坐标：返回该 (行, 列) 处字符格左上角（视口相对，可离屏）。
+     *
+     * @param line 文档行（0 起）
+     * @param col  列（0 起）
+     * @return 左上角 editor 本地坐标；行越界或皮肤未提供几何能力时返回 {@code null}
+     */
+    public Point2D locate(int line, int col) {
+        EditorGeometry g = geometry();
+        return g != null ? g.locate(line, col) : null;
+    }
+
+    /**
+     * 文档位置处的光标外接矩形（左上角同 {@link #locate}，宽为光标宽、
+     * 高为行高），用于把浮窗/弹层锚定到光标。
+     *
+     * @param line 文档行（0 起）
+     * @param col  列（0 起）
+     * @return 光标矩形；行越界或皮肤未提供几何能力时返回 {@code null}
+     */
+    public Bounds caretBounds(int line, int col) {
+        EditorGeometry g = geometry();
+        return g != null ? g.caretBounds(line, col) : null;
+    }
+
+    /** @return 首个可见文档行（0 起）；空文档或皮肤未提供几何能力时返回 {@code -1} */
+    public int firstVisibleLine() {
+        EditorGeometry g = geometry();
+        return g != null ? g.firstVisibleLine() : -1;
+    }
+
+    /** @return 末个可见文档行（0 起，含）；空文档或皮肤未提供几何能力时返回 {@code -1} */
+    public int lastVisibleLine() {
+        EditorGeometry g = geometry();
+        return g != null ? g.lastVisibleLine() : -1;
+    }
+
+    /** @return 水平滚动量（像素）；皮肤未提供几何能力时返回 {@code 0} */
+    public double getScrollX() {
+        EditorGeometry g = geometry();
+        return g != null ? g.getScrollX() : 0;
+    }
+
+    /** @return 垂直滚动量（视觉行数）；皮肤未提供几何能力时返回 {@code 0} */
+    public double getScrollY() {
+        EditorGeometry g = geometry();
+        return g != null ? g.getScrollY() : 0;
+    }
+
+    /** @param pixels 目标水平滚动量（像素，自动钳制）；皮肤未提供几何能力时无操作 */
+    public void setScrollX(double pixels) {
+        EditorGeometry g = geometry();
+        if (g != null) g.setScrollX(pixels);
+    }
+
+    /** @param visualLines 目标垂直滚动量（视觉行数，自动钳制）；皮肤未提供几何能力时无操作 */
+    public void setScrollY(double visualLines) {
+        EditorGeometry g = geometry();
+        if (g != null) g.setScrollY(visualLines);
+    }
+
+    /**
+     * 垂直滚动使指定文档行进入视口（<strong>不移动光标</strong>）；
+     * 已可见时不动。皮肤未提供几何能力时无操作。
+     *
+     * @param line 目标文档行（自动钳制）
+     */
+    public void scrollToLine(int line) {
+        EditorGeometry g = geometry();
+        if (g != null) g.scrollToLine(line);
+    }
+
+    /**
+     * 滚动使指定文档位置进入视口（垂直 + 水平，<strong>不移动光标</strong>）。
+     * 皮肤未提供几何能力时无操作。
+     *
+     * @param line 目标行（自动钳制）
+     * @param col  目标列（自动钳制）
+     */
+    public void revealPosition(int line, int col) {
+        EditorGeometry g = geometry();
+        if (g != null) g.revealPosition(line, col);
+    }
+
+    /**
+     * 返回指定位置处的「词」区间（双击选词语义：以该字符类别向两侧
+     * 扩展到同类游程边界）。
+     *
+     * @param line 文档行（0 起）
+     * @param col  列（0 起）
+     * @return 词区间（同一行内）；行越界或皮肤未提供几何能力时返回 {@code null}
+     */
+    public TextRange wordRangeAt(int line, int col) {
+        EditorGeometry g = geometry();
+        return g != null ? g.wordRangeAt(line, col) : null;
+    }
+
+    // ==================== 编程式选区 / 多光标 / 通知 ====================
+
+    /**
+     * 编程设置主选区并回到单光标：光标落在焦点端 {@code (endLine, endCol)}，
+     * 锚点为 {@code (startLine, startCol)}；坐标自动钳制，起止相同时折叠为无
+     * 选区光标。触发光标监听并请求重绘。
+     *
+     * @param startLine 锚点行   @param startCol 锚点列
+     * @param endLine   焦点行   @param endCol   焦点列
+     */
+    public void selectRange(int startLine, int startCol, int endLine, int endCol) {
+        int[] s = clampToDocument(startLine, startCol);
+        int[] e = clampToDocument(endLine, endCol);
+        clearExtraCarets();
+        primaryCaret.moveTo(e[0], e[1]);
+        if (s[0] != e[0] || s[1] != e[1]) {
+            primaryCaret.select(s[0], s[1], e[0], e[1]);
+        }
+        afterProgrammaticCaretChange();
+    }
+
+    /**
+     * 列块（框）选择：在 {@code start} 与 {@code end} 覆盖的行区间内每行建一个
+     * 光标，各光标选区落在 {@code [start.column, end.column]} 列区间（按行长钳制）；
+     * 焦点端所在行为主光标，其余为额外光标。两列相同时退化为单纯列多光标
+     * （中键拖拽建多光标的典型场景）。触发光标监听并请求重绘。
+     *
+     * @param start 起点（0 起行列）
+     * @param end   终点（0 起行列，其所在行为主光标）
+     */
+    public void selectColumnBlock(Position start, Position end) {
+        if (start == null || end == null) {
+            return;
+        }
+        int total = document.getLineCount();
+        if (total == 0) {
+            return;
+        }
+        int aCol = Math.max(0, start.column());
+        int bCol = Math.max(0, end.column());
+        int l0 = Math.max(0, Math.min(start.line(), end.line()));
+        int l1 = Math.min(total - 1, Math.max(start.line(), end.line()));
+        int primaryLine = Math.max(0, Math.min(end.line(), total - 1));
+        clearExtraCarets();
+        for (int line = l0; line <= l1; line++) {
+            int len = document.getLineLength(line);
+            int ca = Math.min(aCol, len);
+            int cb = Math.min(bCol, len);
+            EditorCaret caret = (line == primaryLine) ? primaryCaret : new EditorCaret();
+            caret.moveTo(line, cb);
+            if (ca != cb) {
+                caret.select(line, ca, line, cb);
+            }
+            if (caret != primaryCaret) {
+                extraCarets.add(caret);
+            }
+        }
+        dedupeCarets();
+        afterProgrammaticCaretChange();
+    }
+
+    /**
+     * 广播主光标位置变化并请求重绘：直接操作 {@link #primaryCaret()}/
+     * {@link #extraCarets()} 后调用，使监听器与皮肤同步。
+     */
+    public void notifyCaretChanged() {
+        afterProgrammaticCaretChange();
+    }
+
+    /** 编程改动光标后的统一收尾：广播主光标位置并请求重绘。 */
+    private void afterProgrammaticCaretChange() {
+        fireCaretChanged(primaryCaret.line(), primaryCaret.column());
+        requestRepaint();
+    }
+
+    // ==================== 视口变化观察 ====================
+
+    /**
+     * 注册视口变化监听器（滚动时回调）。
+     *
+     * @param listener 监听器
+     */
+    public void addViewportChangeListener(ViewportChangeListener listener) {
+        viewportListeners.add(listener);
+    }
+
+    /**
+     * 移除视口变化监听器；未注册时静默忽略。
+     *
+     * @param listener 待移除的监听器
+     */
+    public void removeViewportChangeListener(ViewportChangeListener listener) {
+        viewportListeners.remove(listener);
+    }
+
+    /** 广播视口变化事件（由皮肤在滚动时调用）。 */
+    void fireViewportChanged() {
+        for (ViewportChangeListener l : viewportListeners) {
+            l.onViewportChanged();
         }
     }
 

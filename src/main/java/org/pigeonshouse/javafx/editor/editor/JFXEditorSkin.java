@@ -5,6 +5,8 @@ import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
 import javafx.beans.InvalidationListener;
 import javafx.beans.value.ChangeListener;
+import javafx.geometry.BoundingBox;
+import javafx.geometry.Bounds;
 import javafx.geometry.Orientation;
 import javafx.geometry.Point2D;
 import javafx.scene.Cursor;
@@ -70,7 +72,7 @@ import java.util.function.BooleanSupplier;
  * @see JFXEditor
  * @see RenderLayer
  */
-public class JFXEditorSkin extends SkinBase<JFXEditor> {
+public class JFXEditorSkin extends SkinBase<JFXEditor> implements EditorGeometry {
 
     /** 文本绘制画布（非托管，文本光标形状鼠标指针）。 */
     private final Canvas canvas;
@@ -323,10 +325,16 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         caretBlink.playFromStart();
     }
 
-    /** 滚动条数值变化直接触发重绘。 */
+    /** 滚动条数值变化触发重绘并广播视口变化。 */
     private void setupScrollBars() {
-        verticalScrollBar.valueProperty().addListener((obs, old, val) -> redraw());
-        horizontalScrollBar.valueProperty().addListener((obs, old, val) -> redraw());
+        verticalScrollBar.valueProperty().addListener((obs, old, val) -> {
+            redraw();
+            getSkinnable().fireViewportChanged();
+        });
+        horizontalScrollBar.valueProperty().addListener((obs, old, val) -> {
+            redraw();
+            getSkinnable().fireViewportChanged();
+        });
     }
 
     /** 挂接键盘/鼠标/滚轮/IME 全部输入处理器。 */
@@ -1188,7 +1196,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
     /** 绘制段内一段文本 {@code [from, to)}，x 相对段起始列实测。 */
     private void drawTextPiece(GraphicsContext gc, RenderContext ctx, int line, String lineText,
-                              int segStart, int from, int to, double y) {
+                               int segStart, int from, int to, double y) {
         String text = safeSubstring(lineText, from, to);
         if (text.isEmpty()) {
             return;
@@ -1200,8 +1208,8 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
     /** 超长行视口裁剪绘制：只绘可见列区间附近的文本与 token。 */
     private void drawLongLineViewport(GraphicsContext gc, RenderContext ctx, JFXEditor editor,
-                                       int line, String lineText, int lineLen,
-                                       double viewportWidth, double y) {
+                                      int line, String lineText, int lineLen,
+                                      double viewportWidth, double y) {
         int startCol = findColForOffset(line, horizontalScrollBar.getValue());
         int endCol = findColForOffset(line, horizontalScrollBar.getValue() + viewportWidth + 100);
         endCol = Math.min(endCol + 10, lineLen);
@@ -1516,6 +1524,7 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
     private void handleMousePressed(MouseEvent event) {
         canvas.requestFocus();
         compositionText = "";
+        if (event.getButton() != MouseButton.PRIMARY) return;
         int visualLine = (int) (event.getY() / getSkinnable().calculateLineHeight() + verticalScrollBar.getValue());
         LineOffsetMap.VisualPosition vp = offsetMap().getVisualPosition(visualLine);
         int line = vp.docLine();
@@ -1540,8 +1549,9 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
         redraw();
     }
 
-    /** 鼠标拖动：持续扩展选区并滚动跟随。 */
+    /** 鼠标拖动：仅左键持续扩展选区并滚动跟随。 */
     private void handleMouseDragged(MouseEvent event) {
+        if (event.getButton() != MouseButton.PRIMARY) return;
         int visualLine = (int) (event.getY() / getSkinnable().calculateLineHeight() + verticalScrollBar.getValue());
         LineOffsetMap.VisualPosition vp = offsetMap().getVisualPosition(visualLine);
         int line = vp.docLine();
@@ -1578,6 +1588,207 @@ public class JFXEditorSkin extends SkinBase<JFXEditor> {
 
         return new int[]{clampedLine, clampedCol};
     }
+
+    // ==================== EditorGeometry 桥接实现（像素↔文档↔视口/滚动） ====================
+    // 全部坐标以 editor 本地像素表示：canvas 相对控件的偏移经 canvas.getLayoutX()/Y() 折算。
+
+    /** {@inheritDoc} 复用鼠标定位路径：像素 y→视觉行→文档行，x 段内二分，结果钳制。 */
+    @Override
+    public Position hitTest(double x, double y) {
+        JFXEditor editor = getSkinnable();
+        if (editor.document().getLineCount() == 0) {
+            return Position.ZERO;
+        }
+        refreshWrapConfig();
+        double localY = y - canvas.getLayoutY();
+        int visualLine = (int) (localY / editor.calculateLineHeight() + verticalScrollBar.getValue());
+        LineOffsetMap.VisualPosition vp = offsetMap().getVisualPosition(visualLine);
+        int line = vp.docLine();
+        double textX = x - canvas.getLayoutX() - gutterWidth() + horizontalScrollBar.getValue();
+        int col = columnAtX(line, vp.segmentIndex(), textX);
+        int[] clamped = clampPositionToDocumentBounds(line, col);
+        return new Position(clamped[0], clamped[1]);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public int lineAtY(double y) {
+        JFXEditor editor = getSkinnable();
+        if (editor.document().getLineCount() == 0) {
+            return -1;
+        }
+        refreshWrapConfig();
+        double localY = y - canvas.getLayoutY();
+        int visualLine = (int) (localY / editor.calculateLineHeight() + verticalScrollBar.getValue());
+        return offsetMap().getVisualPosition(visualLine).docLine();
+    }
+
+    /** {@inheritDoc} 与绘制路径同法：段起点实测宽 + 行内推移 − 滚动，再折算为控件坐标。 */
+    @Override
+    public Point2D locate(int line, int col) {
+        JFXEditor editor = getSkinnable();
+        if (line < 0 || line >= editor.document().getLineCount()) {
+            return null;
+        }
+        refreshWrapConfig();
+        LineOffsetMap map = offsetMap();
+        int c = Math.max(0, Math.min(col, editor.document().getLineLength(line)));
+        int seg = wrapModel.segmentOf(line, c);
+        int segStart = wrapModel.segmentStart(line, seg);
+        double x = gutterWidth() + measureSegmentWidth(line, segStart, c)
+                + map.getInlineOffsetAt(line, c) - horizontalScrollBar.getValue();
+        double y = (map.getVisualLine(line, c) - verticalScrollBar.getValue()) * editor.calculateLineHeight();
+        return new Point2D(x + canvas.getLayoutX(), y + canvas.getLayoutY());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Bounds caretBounds(int line, int col) {
+        Point2D p = locate(line, col);
+        if (p == null) {
+            return null;
+        }
+        return new BoundingBox(p.getX(), p.getY(),
+                getSkinnable().caretWidth(), getSkinnable().calculateLineHeight());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public int firstVisibleLine() {
+        JFXEditor editor = getSkinnable();
+        if (editor.document().getLineCount() == 0) {
+            return -1;
+        }
+        refreshWrapConfig();
+        return Math.max(0, offsetMap().getDocumentLine((int) verticalScrollBar.getValue()));
+    }
+
+    /** {@inheritDoc} 从首个可见文档行起累进，直到该行首段视觉行越过视口下沿。 */
+    @Override
+    public int lastVisibleLine() {
+        JFXEditor editor = getSkinnable();
+        int total = editor.document().getLineCount();
+        if (total == 0) {
+            return -1;
+        }
+        refreshWrapConfig();
+        LineOffsetMap map = offsetMap();
+        int lastVisual = (int) (verticalScrollBar.getValue() + canvas.getHeight() / editor.calculateLineHeight());
+        int first = Math.max(0, map.getDocumentLine((int) verticalScrollBar.getValue()));
+        int last = first;
+        for (int dl = first; dl < total; dl++) {
+            if (map.getVisualLine(dl) > lastVisual) {
+                break;
+            }
+            last = dl;
+        }
+        return Math.min(total - 1, last);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public double getScrollX() {
+        return horizontalScrollBar.getValue();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public double getScrollY() {
+        return verticalScrollBar.getValue();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void setScrollX(double pixels) {
+        horizontalScrollBar.setValue(Math.max(0, Math.min(pixels, horizontalScrollBar.getMax())));
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void setScrollY(double visualLines) {
+        verticalScrollBar.setValue(Math.max(0, Math.min(visualLines, verticalScrollBar.getMax())));
+    }
+
+    /** {@inheritDoc} 语义同 {@link #scrollToCursor()} 的垂直部分，但作用于任意行、不动光标。 */
+    @Override
+    public void scrollToLine(int line) {
+        JFXEditor editor = getSkinnable();
+        int total = editor.document().getLineCount();
+        if (total == 0) {
+            return;
+        }
+        refreshWrapConfig();
+        int clamped = Math.max(0, Math.min(line, total - 1));
+        int visualLine = offsetMap().getVisualLine(clamped);
+        double vVal = verticalScrollBar.getValue();
+        double visibleLineCount = canvas.getHeight() / editor.calculateLineHeight();
+        if (visualLine < vVal) {
+            verticalScrollBar.setValue(visualLine);
+        } else if (visualLine + 1 > vVal + visibleLineCount) {
+            verticalScrollBar.setValue(visualLine + 1 - visibleLineCount);
+        }
+    }
+
+    /** {@inheritDoc} 语义同 {@link #scrollToCursor()}，但作用于任意位置、不动光标。 */
+    @Override
+    public void revealPosition(int line, int col) {
+        JFXEditor editor = getSkinnable();
+        if (editor.document().getLineCount() == 0) {
+            return;
+        }
+        refreshWrapConfig();
+        int[] clamped = clampPositionToDocumentBounds(line, col);
+        int targetLine = clamped[0];
+        int targetCol = clamped[1];
+        double lineH = editor.calculateLineHeight();
+        int visualLine = offsetMap().getVisualLine(targetLine, targetCol);
+        double vVal = verticalScrollBar.getValue();
+        double visibleLineCount = canvas.getHeight() / lineH;
+        if (visualLine < vVal) {
+            verticalScrollBar.setValue(visualLine);
+        } else if (visualLine + 1 > vVal + visibleLineCount) {
+            verticalScrollBar.setValue(visualLine + 1 - visibleLineCount);
+        }
+        if (editor.isWrapText()) {
+            return;
+        }
+        double cursorX = measureWidthUpToCol(targetLine, targetCol);
+        double hVal = horizontalScrollBar.getValue();
+        double viewportW = canvas.getWidth() - gutterWidth();
+        if (cursorX < hVal) {
+            horizontalScrollBar.setValue(cursorX);
+        } else if (cursorX > hVal + viewportW) {
+            horizontalScrollBar.setValue(cursorX - viewportW);
+        }
+    }
+
+    /** {@inheritDoc} 以该位置字符的类别（词字符/非词字符）向两侧扩展到同类游程边界。 */
+    @Override
+    public TextRange wordRangeAt(int line, int col) {
+        JFXEditor editor = getSkinnable();
+        if (line < 0 || line >= editor.document().getLineCount()) {
+            return null;
+        }
+        String text = editor.document().getLine(line);
+        int lineLen = (text == null) ? 0 : text.length();
+        if (lineLen == 0) {
+            return TextRange.of(line, 0, line, 0);
+        }
+        int c = Math.max(0, Math.min(col, lineLen));
+        int probe = (c < lineLen) ? c : c - 1;
+        boolean word = isWordChar(text.charAt(probe));
+        int start = probe;
+        int end = probe;
+        while (start > 0 && isWordChar(text.charAt(start - 1)) == word) {
+            start--;
+        }
+        while (end < lineLen && isWordChar(text.charAt(end)) == word) {
+            end++;
+        }
+        return TextRange.of(line, start, line, end);
+    }
+
+    // ==================== EditorGeometry 结束 ====================
 
     /** 鼠标移动：在当前行装饰中查找可悬停且命中的最高优先级装饰。 */
     private void handleMouseMoved(MouseEvent event) {

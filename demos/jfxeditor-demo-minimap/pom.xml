@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.github.creatoraa.demos</groupId>
-    <artifactId>jfxeditor-demo-richtext</artifactId>
+    <artifactId>jfxeditor-demo-minimap</artifactId>
     <version>1.0</version>
 
-    <name>JFXEditor Demo - Rich Text Markup</name>
-    <description>标记语法实时渲染为行间组件（fileindex / img / showFile / link / table / list）</description>
+    <name>JFXEditor Demo - Document Minimap</name>
+    <description>基于公开 API 的文档缩略图：语法着色色块 + 视口联动 + 点击跳转 + 导出 PNG</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
@@ -38,7 +38,7 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
-                    <mainClass>org.pigeonshouse.javafx.editor.demo2.Demo2App</mainClass>
+                    <mainClass>org.pigeonshouse.javafx.editor.demo3.MinimapDemo</mainClass>
                 </configuration>
             </plugin>
         </plugins>
