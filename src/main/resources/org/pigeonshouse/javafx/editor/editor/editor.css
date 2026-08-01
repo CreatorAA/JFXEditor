@@ -13,8 +13,7 @@
 /* ==================== 默认深色主题 ==================== */
 
 .editor {
-    -fx-background-color: #252526;
-
+    -fx-background-color: transparent;
     -editor-background: #1e1e1e;
     -editor-text-color: #d4d4d4;
     -editor-selection-color: rgba(38, 79, 120, 0.27);

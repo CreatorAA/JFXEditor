@@ -72,7 +72,7 @@ import java.util.function.Function;
 public class JFXEditor extends Control {
 
     /** 组件版本号。 */
-    public static final String VERSION = "1.6-preview";
+    public static final String VERSION = "1.6.1";
 
     /** 文档模型，构造后终身不换。 */
     private final Document document;

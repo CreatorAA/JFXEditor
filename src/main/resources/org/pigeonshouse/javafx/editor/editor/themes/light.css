@@ -18,6 +18,7 @@
 /* ==================== 编辑器主体 ==================== */
 
 .editor {
+    -fx-background-color: transparent;
     -editor-background: #ffffff;
     -editor-text-color: #1f1f1f;
     -editor-selection-color: rgba(173, 214, 255, 0.7);
