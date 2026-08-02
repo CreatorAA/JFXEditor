@@ -37,4 +37,10 @@ public interface SyntaxHighlighter {
     default boolean isStateless() {
         return false;
     }
+
+    /**
+     * 释放资源
+     */
+    default void dispose() {
+    }
 }

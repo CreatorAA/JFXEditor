@@ -33,7 +33,7 @@ A native JavaFX code editor component rendered entirely on **Canvas**, highly ex
 <dependency>
     <groupId>io.github.creatoraa</groupId>
     <artifactId>jfxeditor</artifactId>
-    <version>1.6.1</version>
+    <version>1.6.2</version>
 </dependency>
 ```
 

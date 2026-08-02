@@ -531,6 +531,7 @@ public class TreeSitterHighlighter implements AsyncSyntaxHighlighter {
      * 优先在工作线程释放原生资源，随后关停线程池（2 秒等待 +
      * 强制关停 + 500ms 兜底），失败则在当前线程兜底释放。
      */
+    @Override
     public void dispose() {
         disposed = true;
         detach();

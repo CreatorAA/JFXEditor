@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 高亮引擎：文档与高亮器之间的桥梁，提供行级 token 缓存与
@@ -50,8 +51,8 @@ public class HighlightEngine implements DocumentListener {
     /** 构造时缓存的无状态标志。 */
     private final boolean stateless;
     /** 异步高亮完成事件的上层监听器列表。 */
-    private final java.util.concurrent.CopyOnWriteArrayList<HighlightUpdateListener> updateListeners =
-            new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<HighlightUpdateListener> updateListeners =
+            new CopyOnWriteArrayList<>();
     /** 绑定到自身处理方法的异步桥接监听器。 */
     private final HighlightUpdateListener asyncBridge = this::onAsyncHighlightsUpdated;
 
@@ -201,6 +202,7 @@ public class HighlightEngine implements DocumentListener {
         if (highlighter instanceof AsyncSyntaxHighlighter async) {
             async.removeUpdateListener(asyncBridge);
         }
+        highlighter.dispose();
         updateListeners.clear();
         lineCache.clear();
         checkpoints.clear();
